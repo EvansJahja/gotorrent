@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"net/url"
 
-	"example.com/gotorrent/lib/domain"
+	"example.com/gotorrent/lib/core/domain"
 	"example.com/gotorrent/lib/files"
 	"example.com/gotorrent/lib/peer"
-	"example.com/gotorrent/lib/udptracker"
+	"example.com/gotorrent/lib/platform/udptracker"
 )
 
 type Runner struct {

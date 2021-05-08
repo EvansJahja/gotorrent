@@ -10,7 +10,7 @@ import (
 	"path"
 	"sync"
 
-	"example.com/gotorrent/lib/domain"
+	"example.com/gotorrent/lib/core/domain"
 )
 
 type Files struct {

@@ -8,8 +8,13 @@ import (
 	"net/url"
 	"time"
 
-	"example.com/gotorrent/lib/domain"
+	"example.com/gotorrent/lib/core/adapter/peerlist"
+	"example.com/gotorrent/lib/core/domain"
 )
+
+func New() peerlist.PeerRepo {
+	return udpPeerList{}
+}
 
 type connectRequest struct {
 	protocolId    uint64
@@ -153,7 +158,7 @@ func Announce(u *url.URL) (AnnounceResponse, error) {
 		fmt.Print(err)
 		return AnnounceResponse{}, err
 	}
-	c.SetDeadline(time.Now().Add(1 * time.Second))
+	c.SetDeadline(time.Now().Add(3 * time.Second))
 	bytesToWrite := connReq.getBytes()
 
 	c.Write(bytesToWrite)
@@ -198,7 +203,36 @@ func Announce(u *url.URL) (AnnounceResponse, error) {
 
 }
 
+type udpPeerList struct{}
+
+var _ peerlist.PeerRepo = udpPeerList{}
+
+func (peerList udpPeerList) GetPeers() []domain.Host {
+	l := "***REMOVED***"
+	u, _ := url.Parse(l)
+	v := u.Query()
+	trackerURLs := v["tr"]
+	var hosts []domain.Host
+	for _, tr := range trackerURLs {
+		t, _ := url.Parse(tr)
+		resp, err := Announce(t)
+		if err == nil {
+			hosts = append(hosts, resp.Hosts...)
+		}
+
+	}
+	return hosts
+
+	/*
+		if err != nil {
+			return []domain.Host{}
+		}
+		return resp.Hosts
+	*/
+}
+
 /*
+
  port:28117}]}
 
 */

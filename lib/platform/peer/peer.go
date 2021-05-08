@@ -2,16 +2,20 @@ package peer
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha1"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"time"
 
-	"example.com/gotorrent/lib/domain"
+	"example.com/gotorrent/lib/core/adapter/peer"
+
+	"example.com/gotorrent/lib/core/domain"
 	"example.com/gotorrent/lib/extensions"
 )
 
@@ -38,6 +42,7 @@ const (
 	NotiUnchocked
 )
 
+/*
 type Peer interface {
 	Connect() error
 	GetHavePieces() map[int]struct{}
@@ -45,8 +50,16 @@ type Peer interface {
 
 	RequestPiece(pieceId int)
 }
+*/
 
-func NewPeer(h domain.Host, t *domain.Torrent) Peer {
+func New(h domain.Host) peer.Peer {
+	p := peerImpl{
+		Host:   h,
+		pieces: make(map[int]struct{}),
+	}
+	return &p
+}
+func NewPeer(h domain.Host, t *domain.Torrent) peer.Peer {
 	p := peerImpl{
 		Host:    h,
 		Torrent: t,
@@ -92,7 +105,7 @@ func (p peerImpl) GetHavePieces() map[int]struct{} {
 	return p.pieces
 }
 
-func (p peerImpl) RequestPiece(pieceId int) {
+func (p peerImpl) RequestPiece(pieceId int) io.Reader {
 	writeBuf := make([]byte, 12)
 
 	binary.BigEndian.PutUint32(writeBuf[0:], uint32(pieceId))
@@ -102,6 +115,7 @@ func (p peerImpl) RequestPiece(pieceId int) {
 	p.sendCmd(writeBuf, 6)
 
 	//p.sendCmd()
+	return bytes.NewBuffer([]byte{}) // TODO
 
 }
 
