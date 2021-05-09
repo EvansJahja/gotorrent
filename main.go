@@ -2,32 +2,35 @@ package main
 
 import (
 	"fmt"
-	"sync"
 
-	"github.com/rapidloop/skv"
-
+	"example.com/gotorrent/lib/core/service/peerlist"
 	"example.com/gotorrent/lib/platform/gcache"
 	"example.com/gotorrent/lib/platform/udptracker"
-
-	peerAdapter "example.com/gotorrent/lib/core/adapter/peer"
-	"example.com/gotorrent/lib/platform/peer"
-
-	"example.com/gotorrent/lib/platform/mem"
-	"example.com/gotorrent/lib/platform/torrentdir"
-
-	"example.com/gotorrent/lib/core/dag"
-	"example.com/gotorrent/lib/core/dagrunner"
+	"github.com/rapidloop/skv"
 )
 
 func main() {
-
 	location := "/home/evans/torrent/test/"
-	magnetURI := "***REMOVED***"
+	//magnetURI := "***REMOVED***"
 
 	skvStore, err := skv.Open(location + ".skv.db")
 	if err != nil {
 		panic(err)
 	}
+
+	hostList := peerlist.Impl{
+		PersistentMetadata: skvStore,
+		PeerList:           udptracker.New(),
+		Cache:              gcache.NewCache(),
+	}
+
+	hosts, err := hostList.GetHosts()
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+
+	}
+	fmt.Printf("%+v\n", hosts)
 
 	/*
 		v := dag.DownloadTorrent{
@@ -38,26 +41,28 @@ func main() {
 			},
 		}
 	*/
-	v := dag.DownloadStuffs{
-		Globals: dag.Globals{
-			MagnetURI: magnetURI,
-			//TargetPath: location, // Maybe not use?
+	/*
+		v := dag.DownloadStuffs{
+			Globals: dag.Globals{
+				MagnetURI: magnetURI,
+				//TargetPath: location, // Maybe not use?
 
-			LocalRepo: torrentdir.FileRepo{
-				BasePath: location,
-			},
+				LocalRepo: torrentdir.FileRepo{
+					BasePath: location,
+				},
 
-			TempMetadata: mem.MemValueCache{
-				SyncMap: &sync.Map{},
+				TempMetadata: mem.MemValueCache{
+					SyncMap: &sync.Map{},
+				},
+				PersistentMetadata: skvStore,
+				PeerFactory:        peerAdapter.PeerFactoryFn(peer.New),
+				PeerList:           udptracker.New(),
+				Cache:              gcache.NewCache(),
 			},
-			PersistentMetadata: skvStore,
-			PeerFactory:        peerAdapter.PeerFactoryFn(peer.New),
-			PeerList:           udptracker.New(),
-			Cache:              gcache.NewCache(),
-		},
-	}
-	dagrunner.Walk(v)
-	fmt.Println("Program done")
+		}
+		dagrunner.Walk(v)
+		fmt.Println("Program done")
+	*/
 
 	//svc := service.NewTorrent(magnetURI, location)
 	/*
