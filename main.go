@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/url"
 	"time"
 
@@ -16,6 +17,58 @@ import (
 
 	"github.com/rapidloop/skv"
 )
+
+type peerReader struct {
+	pieceNo  uint32
+	peer     peerAdapter.Peer
+	isChoked bool
+	curPos   uint32
+	dataChan chan []byte
+}
+
+func NewPeerReader(p peerAdapter.Peer, pieceNo uint32) io.Reader {
+	pr := peerReader{
+		peer:     p,
+		pieceNo:  pieceNo,
+		dataChan: make(chan []byte),
+		isChoked: true,
+	}
+	p.OnChokedChanged(pr.onChokedChanged)
+	p.OnPieceArrive(pr.onPieceArrive)
+	return &pr
+
+}
+
+var _ io.Reader = &peerReader{}
+
+func (r *peerReader) onChokedChanged(isChoked bool) {
+	r.isChoked = isChoked
+}
+func (r *peerReader) onPieceArrive(index uint32, begin uint32, data []byte) {
+	if r.pieceNo != index {
+		// not for me
+		return
+	}
+	if begin > uint32(r.curPos) {
+		panic("oh no")
+	}
+
+	data = data[r.curPos:] /// trim data we already seen
+
+	r.dataChan <- data
+
+}
+func (r *peerReader) Read(p []byte) (n int, err error) {
+	for r.isChoked {
+		time.Sleep(1 * time.Second)
+	}
+
+	r.peer.RequestPiece(int(r.pieceNo), int(r.curPos), len(p))
+	recvData := <-r.dataChan
+	n = copy(p, recvData[:])
+	r.curPos += uint32(n)
+	return
+}
 
 func main() {
 	location := "/home/evans/torrent/test/"
@@ -75,17 +128,19 @@ func main() {
 	fmt.Printf("Received %x\n", metadata.InfoHash())
 	fmt.Printf("Expected %s\n", infoHashStr)
 
-	torrentMeta := metadata.MustParse()
+	//torrentMeta := metadata.MustParse()
 
-	fmt.Printf("%+v\n", torrentMeta)
+	// fmt.Printf("%+v\n", torrentMeta)
 
 	p := peerFactory.New(targetHost)
+
 	p.OnChokedChanged(func(isChoked bool) {
+		p.RequestPiece(0, 0, 8)
 
 	})
 	p.OnPiecesUpdatedChanged(func() {
-		//p.Unchoke()
-		//p.Interested()
+		p.Unchoke()
+		p.Interested()
 		/*
 			metadata, err := p.GetMetadata()
 			if err == nil {
@@ -98,9 +153,24 @@ func main() {
 		*/
 
 	})
+	p.OnPieceArrive(func(index, begin uint32, piece []byte) {
+		fmt.Printf("Piece idx: %d, begin: %d\n", index, begin)
+		fmt.Printf("Piece data: %v\n", piece)
+		fmt.Printf("ok\n")
+	})
 	p.Connect()
 
-	<-time.After(10 * time.Second)
+	pr := NewPeerReader(p, 0)
+
+	buf := make([]byte, 10)
+	n, err := pr.Read(buf)
+	fmt.Printf("n: %d\n buf: %x\n", n, buf)
+	n, err = pr.Read(buf)
+	fmt.Printf("n: %d\n buf: %x\n", n, buf)
+	n, err = pr.Read(buf)
+	fmt.Printf("n: %d\n buf: %x\n", n, buf)
+
+	<-time.After(60 * time.Second)
 
 	/*
 		v := dag.DownloadTorrent{

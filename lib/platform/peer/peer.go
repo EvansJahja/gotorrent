@@ -40,6 +40,7 @@ type peerImpl struct {
 
 	onChokedChangedFns []func(bool)
 	onPiecesChangedFns []func()
+	onPieceArriveFns   []func(index uint32, begin uint32, piece []byte)
 	notificationMut    sync.RWMutex
 }
 
@@ -73,6 +74,12 @@ func (impl *peerImpl) OnPiecesUpdatedChanged(fn func()) {
 
 	impl.onPiecesChangedFns = append(impl.onPiecesChangedFns, fn)
 
+}
+func (impl *peerImpl) OnPieceArrive(fn func(index uint32, begin uint32, piece []byte)) {
+	impl.notificationMut.Lock()
+	defer impl.notificationMut.Unlock()
+
+	impl.onPieceArriveFns = append(impl.onPieceArriveFns, fn)
 }
 
 func (impl *peerImpl) GetPeerID() []byte {
@@ -233,10 +240,19 @@ func (impl *peerImpl) handlePiece(msg []byte) {
 	index = binary.BigEndian.Uint32(msg[0:4])
 	begin = binary.BigEndian.Uint32(msg[4:8])
 	piece = msg[8:]
-	fmt.Printf("Piece idx: %d, begin: %d\n", index, begin)
-	fmt.Printf("Piece data: %v\n", piece)
-	fmt.Printf("ok\n")
 
+	impl.notificationMut.RLock()
+	defer impl.notificationMut.RUnlock()
+
+	var wg sync.WaitGroup
+	for _, onPieceArriveFn := range impl.onPieceArriveFns {
+		wg.Add(1)
+		go func(f func(i uint32, b uint32, p []byte)) {
+			f(index, begin, piece)
+			wg.Done()
+		}(onPieceArriveFn)
+	}
+	wg.Wait()
 }
 
 func (impl *peerImpl) handleBitField(msg []byte) {
