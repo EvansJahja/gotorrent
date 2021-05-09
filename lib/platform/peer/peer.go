@@ -19,6 +19,7 @@ import (
 
 const (
 	protoBitTorrent = "BitTorrent protocol"
+	maxRequestSize  = 1 << 13 // 2 ^ 14 or 16 kB
 )
 
 type SendMsgFn func(msg []byte)
@@ -60,6 +61,16 @@ func New(h domain.Host, infoHash []byte) peer.Peer {
 }
 
 var _ peer.Peer = &peerImpl{}
+
+func (impl *peerImpl) GetState() peer.State {
+	return peer.State{
+		WeAreChocked:      impl.weAreChocked,
+		TheyAreChocked:    impl.theyAreChocked,
+		WeAreInterested:   impl.weAreInterested,
+		TheyAreInterested: impl.theyAreInterested,
+	}
+
+}
 
 func (impl *peerImpl) OnChokedChanged(fn func(isChoked bool)) {
 	impl.notificationMut.Lock()
@@ -114,8 +125,11 @@ func (impl *peerImpl) GetHavePieces() map[int]struct{} {
 	return impl.pieces
 }
 
-func (impl *peerImpl) RequestPiece(pieceId int, begin int, length int) {
+func (impl *peerImpl) RequestPiece(pieceId uint32, begin uint32, length uint32) {
 	writeBuf := make([]byte, 12)
+	if length > maxRequestSize {
+		length = maxRequestSize
+	}
 
 	binary.BigEndian.PutUint32(writeBuf[0:], uint32(pieceId))
 	binary.BigEndian.PutUint32(writeBuf[4:], uint32(begin))

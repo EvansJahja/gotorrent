@@ -1,7 +1,9 @@
 package peerpool
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -11,6 +13,8 @@ import (
 
 type Service interface {
 	AddHosts(newHosts ...domain.Host)
+	Start()
+	NewPeerPoolReader(pieceNo uint32, pieceLength uint32) io.ReadSeeker
 }
 type Impl struct {
 	PeerFactory    peer.PeerFactory
@@ -19,13 +23,58 @@ type Impl struct {
 	connectedPeers []peer.Peer
 }
 
+var _ Service = &Impl{}
+
 func (impl *Impl) AddHosts(newHosts ...domain.Host) {
+	FilterNotChoking(impl.connectedPeers)
 	impl.newHosts = append(impl.newHosts, newHosts...)
 }
 
 func (impl *Impl) Start() {
 	fmt.Printf("starting peerpool\n")
 	go impl.run()
+}
+
+func (impl *Impl) NewPeerPoolReader(pieceNo uint32, pieceLength uint32) io.ReadSeeker {
+	//p := impl.connectedPeers[0]
+	//return peer.NewPeerReader(p, pieceNo, pieceLength)
+	return &poolReaderImpl{impl: impl,
+		pieceNo:     pieceNo,
+		pieceLength: pieceLength,
+	}
+
+}
+
+type poolReaderImpl struct {
+	impl        *Impl
+	pieceNo     uint32
+	pieceLength uint32
+	curSeek     uint32
+}
+
+func (poolImpl *poolReaderImpl) Read(p []byte) (n int, err error) {
+	filteredPeers := FilterPool(poolImpl.impl.connectedPeers, FilterNotChoking)
+	if len(filteredPeers) == 0 {
+		return 0, errors.New("no peers available")
+	}
+	r := peer.NewPeerReader(filteredPeers[0], poolImpl.pieceNo, poolImpl.pieceLength)
+	r.Seek(int64(poolImpl.curSeek), io.SeekStart)
+	return r.Read(p)
+}
+
+func (poolImpl *poolReaderImpl) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case io.SeekCurrent:
+		poolImpl.curSeek += uint32(offset)
+	case io.SeekStart:
+		poolImpl.curSeek = uint32(offset)
+	case io.SeekEnd:
+		return 0, errors.New("seekend not implemented")
+	}
+	if poolImpl.curSeek > poolImpl.pieceLength {
+		poolImpl.curSeek = poolImpl.pieceLength
+	}
+	return int64(poolImpl.curSeek), nil
 }
 
 func (impl *Impl) run() {

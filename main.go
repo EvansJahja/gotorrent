@@ -3,12 +3,11 @@ package main
 import (
 	"encoding/hex"
 	"fmt"
-	"io"
 	"net/url"
-	"time"
 
 	peerAdapter "example.com/gotorrent/lib/core/adapter/peer"
 	"example.com/gotorrent/lib/core/service/peerlist"
+	"example.com/gotorrent/lib/core/service/peerpool"
 
 	"example.com/gotorrent/lib/core/domain"
 	"example.com/gotorrent/lib/platform/gcache"
@@ -17,58 +16,6 @@ import (
 
 	"github.com/rapidloop/skv"
 )
-
-type peerReader struct {
-	pieceNo  uint32
-	peer     peerAdapter.Peer
-	isChoked bool
-	curPos   uint32
-	dataChan chan []byte
-}
-
-func NewPeerReader(p peerAdapter.Peer, pieceNo uint32) io.Reader {
-	pr := peerReader{
-		peer:     p,
-		pieceNo:  pieceNo,
-		dataChan: make(chan []byte),
-		isChoked: true,
-	}
-	p.OnChokedChanged(pr.onChokedChanged)
-	p.OnPieceArrive(pr.onPieceArrive)
-	return &pr
-
-}
-
-var _ io.Reader = &peerReader{}
-
-func (r *peerReader) onChokedChanged(isChoked bool) {
-	r.isChoked = isChoked
-}
-func (r *peerReader) onPieceArrive(index uint32, begin uint32, data []byte) {
-	if r.pieceNo != index {
-		// not for me
-		return
-	}
-	if begin > uint32(r.curPos) {
-		panic("oh no")
-	}
-
-	data = data[r.curPos:] /// trim data we already seen
-
-	r.dataChan <- data
-
-}
-func (r *peerReader) Read(p []byte) (n int, err error) {
-	for r.isChoked {
-		time.Sleep(1 * time.Second)
-	}
-
-	r.peer.RequestPiece(int(r.pieceNo), int(r.curPos), len(p))
-	recvData := <-r.dataChan
-	n = copy(p, recvData[:])
-	r.curPos += uint32(n)
-	return
-}
 
 func main() {
 	location := "/home/evans/torrent/test/"
@@ -95,30 +42,31 @@ func main() {
 		},
 		Cache: gcache.NewCache(),
 	}
-	var _ = hostList
-	/*
 
-		peerPool := peerpool.Impl{
-			PeerFactory: peerAdapter.NewPeerFactory(infoHash, peer.New),
-		}
-
-		hosts, err := hostList.GetHosts()
-		if err != nil {
-			fmt.Println(err.Error())
-			return
-
-		}
-	*/
-	/*
-		peerPool.Start()
-		peerPool.AddHosts(hosts...)
-
-	*/
-	peerFactory := peerAdapter.NewPeerFactory(infoHash, peer.New)
-	targetHost := domain.Host{
-		IP:   []byte{99, 232, 180, 37},
-		Port: 56555,
+	peerPool := peerpool.Impl{
+		PeerFactory: peerAdapter.NewPeerFactory(infoHash, peer.New),
 	}
+
+	hosts, err := hostList.GetHosts()
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+
+	}
+	peerPool.Start()
+	peerPool.AddHosts(hosts...)
+
+	/*
+		peerFactory := peerAdapter.NewPeerFactory(infoHash, peer.New)
+		targetHost1 := domain.Host{
+			IP:   []byte{99, 232, 180, 37},
+			Port: 56555,
+		}
+		targetHost2 := domain.Host{
+			IP:   []byte{41, 107, 76, 73},
+			Port: 37746,
+		}
+	*/
 
 	var metadata domain.Metadata
 	err = skvStore.Get("metadata", &metadata)
@@ -128,49 +76,66 @@ func main() {
 	fmt.Printf("Received %x\n", metadata.InfoHash())
 	fmt.Printf("Expected %s\n", infoHashStr)
 
-	//torrentMeta := metadata.MustParse()
+	torrentMeta := metadata.MustParse()
 
-	// fmt.Printf("%+v\n", torrentMeta)
+	fmt.Printf("Piece length:  %d\n", torrentMeta.PieceLength)
 
-	p := peerFactory.New(targetHost)
+	/*
+		p1 := peerFactory.New(targetHost1)
+		p2 := peerFactory.New(targetHost2)
 
-	p.OnChokedChanged(func(isChoked bool) {
-		p.RequestPiece(0, 0, 8)
+		p1.OnPiecesUpdatedChanged(func() {
+			p1.Unchoke()
+			p1.Interested()
+		})
+		p2.OnPiecesUpdatedChanged(func() {
+			p2.Unchoke()
+			p2.Interested()
+		})
 
-	})
-	p.OnPiecesUpdatedChanged(func() {
-		p.Unchoke()
-		p.Interested()
-		/*
-			metadata, err := p.GetMetadata()
-			if err == nil {
-				fmt.Printf("Received %x\n", metadata.InfoHash())
-				fmt.Printf("Expected %s\n", infoHashStr)
-				skvStore.Put("metadata", metadata)
-				fmt.Print("done")
+		p1.Connect()
+		p2.Connect()
 
+		pr1 := peerAdapter.NewPeerReader(p1, 0, 16777216)
+		pr2 := peerAdapter.NewPeerReader(p2, 0, 16777216)
+
+		r, w := io.Pipe()
+
+		readers := []io.ReadSeeker{pr1, pr2}
+		cur := int64(0)
+		go func() {
+		Loop:
+			for {
+				for _, peerR := range readers {
+					peerR.Seek(cur, io.SeekStart)
+					n, err := io.CopyN(w, peerR, 2048)
+					if err == io.EOF {
+						break Loop
+					}
+					cur += n
+				}
 			}
-		*/
+		}()
 
-	})
-	p.OnPieceArrive(func(index, begin uint32, piece []byte) {
-		fmt.Printf("Piece idx: %d, begin: %d\n", index, begin)
-		fmt.Printf("Piece data: %v\n", piece)
-		fmt.Printf("ok\n")
-	})
-	p.Connect()
+		bufbytes := make([]byte, 16777216)
+		buf := bytes.NewBuffer(bufbytes)
 
-	pr := NewPeerReader(p, 0)
+		var x int
+		ptr := passthroughreader.NewPassthrough(r, func(n int) {
+			x += n
+			prog := float32(100.0*x) / 16777216
+			fmt.Printf("Progress: %f%%\n", prog)
+		})
 
-	buf := make([]byte, 10)
-	n, err := pr.Read(buf)
-	fmt.Printf("n: %d\n buf: %x\n", n, buf)
-	n, err = pr.Read(buf)
-	fmt.Printf("n: %d\n buf: %x\n", n, buf)
-	n, err = pr.Read(buf)
-	fmt.Printf("n: %d\n buf: %x\n", n, buf)
+		io.Copy(buf, ptr)
 
-	<-time.After(60 * time.Second)
+		//fmt.Printf("%d %s", n, err.Error())
+
+		fmt.Printf("%s\n", buf)
+		fmt.Printf("ok")
+
+		<-time.After(60 * time.Second)
+	*/
 
 	/*
 		v := dag.DownloadTorrent{
