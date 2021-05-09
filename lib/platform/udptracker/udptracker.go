@@ -2,7 +2,6 @@ package udptracker
 
 import (
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"net"
 	"net/url"
@@ -13,7 +12,7 @@ import (
 )
 
 type UdpPeerList struct {
-	InfoHash string
+	InfoHash []byte
 	Trackers []string
 }
 
@@ -196,11 +195,10 @@ func (peerList UdpPeerList) announce(u *url.URL) (AnnounceResponse, error) {
 	//connId := connResp.connID
 
 	announceReq := newAnnounceRequest()
-	infoHash, _ := hex.DecodeString(peerList.InfoHash)
 
 	announceReq.connId = connResp.connID
 	announceReq.transactionId = transactionId
-	announceReq.infoHash = infoHash
+	announceReq.infoHash = peerList.InfoHash
 	announceReq.peerId = "-GO0000-0257f4bc7fa1"
 
 	c.Write(announceReq.getBytes())

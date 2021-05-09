@@ -1,16 +1,19 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net/url"
+	"time"
 
 	peerAdapter "example.com/gotorrent/lib/core/adapter/peer"
-
 	"example.com/gotorrent/lib/core/service/peerlist"
-	"example.com/gotorrent/lib/core/service/peerpool"
+
+	"example.com/gotorrent/lib/core/domain"
 	"example.com/gotorrent/lib/platform/gcache"
 	"example.com/gotorrent/lib/platform/peer"
 	"example.com/gotorrent/lib/platform/udptracker"
+
 	"github.com/rapidloop/skv"
 )
 
@@ -18,7 +21,9 @@ func main() {
 	location := "/home/evans/torrent/test/"
 	magnetURI := "***REMOVED***"
 
-	infoHash := "***REMOVED***"
+	infoHashStr := "***REMOVED***"
+	infoHash, _ := hex.DecodeString(infoHashStr)
+
 	u, _ := url.Parse(magnetURI)
 	v := u.Query()
 	trackers := v["tr"]
@@ -27,6 +32,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	defer skvStore.Close()
 
 	hostList := peerlist.Impl{
 		PersistentMetadata: skvStore,
@@ -36,21 +42,65 @@ func main() {
 		},
 		Cache: gcache.NewCache(),
 	}
+	var _ = hostList
+	/*
 
-	peerPool := peerpool.Impl{
-		PeerFactory: peerAdapter.NewPeerFactory(infoHash, peer.New),
+		peerPool := peerpool.Impl{
+			PeerFactory: peerAdapter.NewPeerFactory(infoHash, peer.New),
+		}
+
+		hosts, err := hostList.GetHosts()
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+
+		}
+	*/
+	/*
+		peerPool.Start()
+		peerPool.AddHosts(hosts...)
+
+	*/
+	peerFactory := peerAdapter.NewPeerFactory(infoHash, peer.New)
+	targetHost := domain.Host{
+		IP:   []byte{99, 232, 180, 37},
+		Port: 56555,
 	}
 
-	hosts, err := hostList.GetHosts()
+	var metadata domain.Metadata
+	err = skvStore.Get("metadata", &metadata)
 	if err != nil {
-		fmt.Println(err.Error())
-		return
-
+		panic(err)
 	}
-	peerPool.Start()
-	peerPool.AddHosts(hosts...)
+	fmt.Printf("Received %x\n", metadata.InfoHash())
+	fmt.Printf("Expected %s\n", infoHashStr)
 
-	select {}
+	torrentMeta := metadata.MustParse()
+
+	fmt.Printf("%+v\n", torrentMeta)
+
+	p := peerFactory.New(targetHost)
+	p.OnChokedChanged(func(isChoked bool) {
+
+	})
+	p.OnPiecesUpdatedChanged(func() {
+		//p.Unchoke()
+		//p.Interested()
+		/*
+			metadata, err := p.GetMetadata()
+			if err == nil {
+				fmt.Printf("Received %x\n", metadata.InfoHash())
+				fmt.Printf("Expected %s\n", infoHashStr)
+				skvStore.Put("metadata", metadata)
+				fmt.Print("done")
+
+			}
+		*/
+
+	})
+	p.Connect()
+
+	<-time.After(10 * time.Second)
 
 	/*
 		v := dag.DownloadTorrent{

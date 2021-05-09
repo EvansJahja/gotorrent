@@ -2,9 +2,8 @@ package peer
 
 import (
 	"bufio"
-	"crypto/sha1"
+	"bytes"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -26,7 +25,7 @@ type SendMsgFn func(msg []byte)
 
 type peerImpl struct {
 	Host       domain.Host
-	InfoHash   string
+	InfoHash   []byte
 	pieces     map[int]struct{}
 	extHandler extensions.ExtHandler
 	conn       net.Conn
@@ -44,7 +43,7 @@ type peerImpl struct {
 	notificationMut    sync.RWMutex
 }
 
-func New(h domain.Host, infoHash string) peer.Peer {
+func New(h domain.Host, infoHash []byte) peer.Peer {
 	p := peerImpl{
 		InfoHash:              infoHash,
 		Host:                  h,
@@ -155,8 +154,9 @@ func (impl *peerImpl) handleConn() {
 
 	impl.extHandler.Init()
 
+	///impl.extHandler.Startup()
 	// TODO: We don't need this now
-	// go impl.getMetadata()
+	//go impl.getMetadata()
 
 	for {
 		msgLenBuf := make([]byte, 4)
@@ -294,20 +294,16 @@ func (impl peerImpl) sendCmd(msg []byte, cmdId byte) {
 
 }
 
-func (impl peerImpl) getMetadata() {
-	metadata := <-impl.extHandler.FetchMetadata()
+func (impl peerImpl) GetMetadata() (domain.Metadata, error) {
+	metadataBytes := <-impl.extHandler.FetchMetadata()
 
-	s := sha1.New()
-	s.Write(metadata)
-	b := s.Sum(nil)
+	metadata := domain.Metadata(metadataBytes)
 
-	hash := hex.EncodeToString(b)
-	if hash != impl.InfoHash {
-		fmt.Printf("Invalid sum")
-		return
+	if !bytes.Equal(metadata.InfoHash(), impl.InfoHash) {
+		return nil, errors.New("Invalid sum")
 	}
 
-	fmt.Printf("%v", metadata)
+	return domain.Metadata(metadata), nil
 
 }
 

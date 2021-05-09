@@ -12,6 +12,7 @@ import (
 
 type ExtHandler interface {
 	Init()
+	Startup()
 	HandleCommand(msgId byte, msgVal []byte)
 	FetchMetadata() <-chan []byte
 }
@@ -101,6 +102,7 @@ func (h *extHandler) HandleCommand(msgId byte, msgVal []byte) {
 		}
 		if dataMap, ok := data.(map[string]interface{}); ok {
 			h.SetExtendedInfo(dataMap)
+			fmt.Printf("%+v", h.peerExtendedInfo)
 			h.Startup()
 		}
 	default:
@@ -115,7 +117,12 @@ func (h *extHandler) sendMsg(msg []byte) {
 func (h *extHandler) startup() {
 	var bbuf bytes.Buffer
 
-	err := bencode.Marshal(bufio.NewWriter(&bbuf), h.ourExtendedInfo)
+	writer := bufio.NewWriter(&bbuf)
+
+	err := bencode.Marshal(writer, h.ourExtendedInfo)
+
+	writer.Flush()
+	fmt.Printf("ext: %+v\n", h.ourExtendedInfo)
 
 	b := bbuf.Bytes()
 	if len(b) == 0 {

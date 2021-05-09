@@ -8,6 +8,8 @@ type Peer interface {
 	Connect() error
 	GetHavePieces() map[int]struct{}
 
+	GetMetadata() (domain.Metadata, error)
+
 	RequestPiece(pieceId int, begin int, length int)
 	GetPeerID() []byte
 
@@ -24,9 +26,9 @@ type PeerFactory interface {
 	New(h domain.Host) Peer
 }
 
-type PeerFactoryWithHashFn func(h domain.Host, infoHash string) Peer
+type PeerFactoryWithHashFn func(h domain.Host, infoHash []byte) Peer
 
-func NewPeerFactory(infoHash string, peerFactoryWithHashFn PeerFactoryWithHashFn) PeerFactory {
+func NewPeerFactory(infoHash []byte, peerFactoryWithHashFn PeerFactoryWithHashFn) PeerFactory {
 	return peerFactoryFn(
 		func(h domain.Host) Peer {
 			return peerFactoryWithHashFn(h, infoHash)

@@ -1,27 +1,25 @@
 package peer
 
 import (
+	"bytes"
 	"encoding/binary"
-	"encoding/hex"
 )
 
 type handshake struct {
 	proto        string
 	featureFlags uint64
-	infoHash     string
+	infoHash     []byte
 	peerID       []byte
 }
 
 func (u handshake) matches(v handshake) bool {
-	return u.proto == v.proto && u.infoHash == v.infoHash
+	return u.proto == v.proto && bytes.Equal(u.infoHash, v.infoHash)
 }
 
 func (h handshake) getBytes() []byte {
 	handshakeBytes := make([]byte, 1024)
 
 	protoLen := len(h.proto)
-
-	infoHashBytes, _ := hex.DecodeString(h.infoHash)
 
 	n := 0
 	n += copy(handshakeBytes[n:], []byte{byte(protoLen)})
@@ -30,7 +28,7 @@ func (h handshake) getBytes() []byte {
 	binary.BigEndian.PutUint64(handshakeBytes[n:], h.featureFlags)
 	n += 8
 
-	n += copy(handshakeBytes[n:], infoHashBytes)
+	n += copy(handshakeBytes[n:], h.infoHash)
 	n += copy(handshakeBytes[n:], []byte(h.peerID))
 
 	handshakeBytes = handshakeBytes[:n]
@@ -49,7 +47,7 @@ func newHandshake(b []byte) handshake {
 	h.featureFlags = binary.BigEndian.Uint64(b[n:])
 	n += 8
 
-	h.infoHash = hex.EncodeToString(b[n : n+20])
+	h.infoHash = b[n : n+20]
 	n += 20
 
 	h.peerID = b[n : n+20]
