@@ -2,16 +2,26 @@ package main
 
 import (
 	"fmt"
+	"net/url"
+
+	peerAdapter "example.com/gotorrent/lib/core/adapter/peer"
 
 	"example.com/gotorrent/lib/core/service/peerlist"
+	"example.com/gotorrent/lib/core/service/peerpool"
 	"example.com/gotorrent/lib/platform/gcache"
+	"example.com/gotorrent/lib/platform/peer"
 	"example.com/gotorrent/lib/platform/udptracker"
 	"github.com/rapidloop/skv"
 )
 
 func main() {
 	location := "/home/evans/torrent/test/"
-	//magnetURI := "***REMOVED***"
+	magnetURI := "***REMOVED***"
+
+	infoHash := "***REMOVED***"
+	u, _ := url.Parse(magnetURI)
+	v := u.Query()
+	trackers := v["tr"]
 
 	skvStore, err := skv.Open(location + ".skv.db")
 	if err != nil {
@@ -20,8 +30,15 @@ func main() {
 
 	hostList := peerlist.Impl{
 		PersistentMetadata: skvStore,
-		PeerList:           udptracker.New(),
-		Cache:              gcache.NewCache(),
+		PeerList: udptracker.UdpPeerList{
+			InfoHash: infoHash,
+			Trackers: trackers,
+		},
+		Cache: gcache.NewCache(),
+	}
+
+	peerPool := peerpool.Impl{
+		PeerFactory: peerAdapter.NewPeerFactory(infoHash, peer.New),
 	}
 
 	hosts, err := hostList.GetHosts()
@@ -30,7 +47,10 @@ func main() {
 		return
 
 	}
-	fmt.Printf("%+v\n", hosts)
+	peerPool.Start()
+	peerPool.AddHosts(hosts...)
+
+	select {}
 
 	/*
 		v := dag.DownloadTorrent{

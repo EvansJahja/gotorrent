@@ -2,15 +2,14 @@ package peer
 
 import (
 	"bufio"
-	"bytes"
 	"crypto/sha1"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"strconv"
+	"sync"
 	"time"
 
 	"example.com/gotorrent/lib/core/adapter/peer"
@@ -26,110 +25,111 @@ const (
 type SendMsgFn func(msg []byte)
 
 type peerImpl struct {
-	Host         domain.Host
-	Torrent      *domain.Torrent
-	pieces       map[int]struct{}
-	extHandler   extensions.ExtHandler
-	conn         net.Conn
-	notification []chan NotiMsg
+	Host       domain.Host
+	InfoHash   string
+	pieces     map[int]struct{}
+	extHandler extensions.ExtHandler
+	conn       net.Conn
+
+	weAreChocked      bool
+	theyAreChocked    bool
+	weAreInterested   bool
+	theyAreInterested bool
+
+	theirPeerID           []byte
+	peerHandshakeRespChan chan struct{}
+
+	onChokedChangedFns []func(bool)
+	onPiecesChangedFns []func()
+	notificationMut    sync.RWMutex
 }
 
-type NotiMsg int
-
-const (
-	NotiInvalid NotiMsg = iota
-	NotiPiecesUpdated
-	NotiUnchocked
-)
-
-/*
-type Peer interface {
-	Connect() error
-	GetHavePieces() map[int]struct{}
-	GetNotification() <-chan NotiMsg
-
-	RequestPiece(pieceId int)
-}
-*/
-
-func New(h domain.Host) peer.Peer {
+func New(h domain.Host, infoHash string) peer.Peer {
 	p := peerImpl{
-		Host:   h,
-		pieces: make(map[int]struct{}),
-	}
-	return &p
-}
-func NewPeer(h domain.Host, t *domain.Torrent) peer.Peer {
-	p := peerImpl{
-		Host:    h,
-		Torrent: t,
-		pieces:  make(map[int]struct{}),
+		InfoHash:              infoHash,
+		Host:                  h,
+		pieces:                make(map[int]struct{}),
+		peerHandshakeRespChan: make(chan struct{}),
+
+		weAreChocked:      true,
+		theyAreChocked:    true,
+		weAreInterested:   false,
+		theyAreInterested: false,
 	}
 	return &p
 }
 
-func (p *peerImpl) GetNotification() <-chan NotiMsg {
-	n := make(chan NotiMsg)
-	p.notification = append(p.notification, n)
-	return n
+var _ peer.Peer = &peerImpl{}
+
+func (impl *peerImpl) OnChokedChanged(fn func(isChoked bool)) {
+	impl.notificationMut.Lock()
+	defer impl.notificationMut.Unlock()
+
+	impl.onChokedChangedFns = append(impl.onChokedChangedFns, fn)
 }
 
-func (p *peerImpl) Connect() error {
+func (impl *peerImpl) OnPiecesUpdatedChanged(fn func()) {
+	impl.notificationMut.Lock()
+	defer impl.notificationMut.Unlock()
 
-	hostname := net.JoinHostPort(p.Host.IP.String(), strconv.Itoa(int(p.Host.Port)))
+	impl.onPiecesChangedFns = append(impl.onPiecesChangedFns, fn)
+
+}
+
+func (impl *peerImpl) GetPeerID() []byte {
+	<-impl.peerHandshakeRespChan
+	return impl.theirPeerID
+}
+
+func (impl *peerImpl) Connect() error {
+
+	hostname := net.JoinHostPort(impl.Host.IP.String(), strconv.Itoa(int(impl.Host.Port)))
 	conn, err := net.DialTimeout("tcp", hostname, 3*time.Second)
 	if err != nil {
 		return err
 	}
-	p.conn = conn
+	impl.conn = conn
 
 	conn.SetDeadline(time.Now().Add(5 * time.Second))
 
-	p.Torrent.RLock()
-	infoHash := p.Torrent.InfoHash
-	p.Torrent.RUnlock()
-
-	if err := doHandshake(conn, infoHash); err != nil {
+	if err := impl.doHandshake(); err != nil {
 		fmt.Print(err)
 		return err
 	}
 
 	fmt.Printf("Connected to %s\n", hostname)
 
-	go p.handleConn()
+	go impl.handleConn()
 
 	return nil
 
 }
-func (p peerImpl) GetHavePieces() map[int]struct{} {
-	return p.pieces
+func (impl *peerImpl) GetHavePieces() map[int]struct{} {
+	return impl.pieces
 }
 
-func (p peerImpl) RequestPiece(pieceId int) io.Reader {
+func (impl *peerImpl) RequestPiece(pieceId int, begin int, length int) {
 	writeBuf := make([]byte, 12)
 
 	binary.BigEndian.PutUint32(writeBuf[0:], uint32(pieceId))
-	binary.BigEndian.PutUint32(writeBuf[4:], uint32(0))
-	binary.BigEndian.PutUint32(writeBuf[8:], uint32(100))
+	binary.BigEndian.PutUint32(writeBuf[4:], uint32(begin))
+	binary.BigEndian.PutUint32(writeBuf[8:], uint32(length))
 
-	p.sendCmd(writeBuf, 6)
-
-	//p.sendCmd()
-	return bytes.NewBuffer([]byte{}) // TODO
+	impl.sendCmd(writeBuf, 6)
 
 }
 
-func doHandshake(c net.Conn, infoHash string) error {
+func (impl *peerImpl) doHandshake() error {
 	handshakeReq := handshake{
 		proto:        protoBitTorrent,
 		featureFlags: 0x00_00_00_00_00_10_00_00,
-		infoHash:     infoHash,
+		infoHash:     impl.InfoHash,
 		peerID:       []byte("-GO0000-0257f4bc7fa1"),
 	}
-	c.Write(handshakeReq.getBytes())
+	impl.conn.Write(handshakeReq.getBytes())
 	handshakeRespBuff := make([]byte, 68)
 
-	n, err := c.Read(handshakeRespBuff)
+	n, err := impl.conn.Read(handshakeRespBuff)
 	if err != nil {
 		return err
 	}
@@ -140,25 +140,31 @@ func doHandshake(c net.Conn, infoHash string) error {
 		return errors.New("handshake does not match")
 	}
 
+	go func() {
+		impl.theirPeerID = handshakeResp.peerID
+		close(impl.peerHandshakeRespChan)
+	}()
+
 	return nil
 
 }
 
-func (h *peerImpl) handleConn() {
+func (impl *peerImpl) handleConn() {
 
-	h.extHandler = extensions.NewExtHandler(h.conn, h.sendCmd)
+	impl.extHandler = extensions.NewExtHandler(impl.conn, impl.sendCmd)
 
-	h.extHandler.Init()
+	impl.extHandler.Init()
 
-	go h.getMetadata()
+	// TODO: We don't need this now
+	// go impl.getMetadata()
 
 	for {
 		msgLenBuf := make([]byte, 4)
-		_, err := h.conn.Read(msgLenBuf)
+		_, err := impl.conn.Read(msgLenBuf)
 		if err != nil {
 			break
 		}
-		h.conn.SetDeadline(time.Now().Add(5 * time.Minute))
+		impl.conn.SetDeadline(time.Now().Add(5 * time.Minute))
 		msgLen := binary.BigEndian.Uint32(msgLenBuf)
 
 		if msgLen == 0 {
@@ -168,61 +174,104 @@ func (h *peerImpl) handleConn() {
 
 		msgBuf := make([]byte, msgLen)
 		for n := 0; n < int(msgLen); {
-			nextN, err := h.conn.Read(msgBuf[n:])
+			nextN, err := impl.conn.Read(msgBuf[n:])
 			if err != nil {
 				goto exit
 			}
 			n += nextN
 		}
 
-		go h.handleMessage(msgBuf)
+		go impl.handleMessage(msgBuf)
 	}
 exit:
 }
 
-func (h *peerImpl) handleMessage(msg []byte) {
+func (impl *peerImpl) handleMessage(msg []byte) {
 	msgType := msg[0]
 	fmt.Printf("Receive msg type %d\n", msgType)
 	msgVal := msg[1:]
 
 	switch msgType {
-	case 1:
-		print("Unchoke")
-		h.notify(NotiUnchocked)
+	case 0: // Choke
+		impl.handleWeAreChoked(true)
+	case 1: // Unchoke
+		impl.handleWeAreChoked(false)
 	case 5:
 		print("Bitfield")
-		h.sendCmd(nil, 2) // interested
-		h.sendCmd(nil, 1) // unchoke
-		h.handleBitField(msgVal)
-		h.notify(NotiPiecesUpdated)
+		impl.handleBitField(msgVal)
+		//impl.notify(NotiPiecesUpdated)
+	case 7:
+		impl.handlePiece(msgVal)
 	case 20:
-		h.handleExtendedMsg(msgVal)
+		impl.handleExtendedMsg(msgVal)
 
 	default:
 		print(msgType)
 	}
 }
 
-func (h *peerImpl) handleBitField(msg []byte) {
+func (impl *peerImpl) handleWeAreChoked(weAreChoked bool) {
+	impl.weAreChocked = weAreChoked
+	impl.notificationMut.RLock()
+	defer impl.notificationMut.RUnlock()
+	var wg sync.WaitGroup
+	for _, onChokedChanged := range impl.onChokedChangedFns {
+		wg.Add(1)
+		go func(f func(b bool)) {
+			f(weAreChoked)
+			wg.Done()
+		}(onChokedChanged)
+	}
+	wg.Wait()
+}
+
+func (impl *peerImpl) handlePiece(msg []byte) {
+	var index uint32
+	var begin uint32
+	var piece []byte
+
+	index = binary.BigEndian.Uint32(msg[0:4])
+	begin = binary.BigEndian.Uint32(msg[4:8])
+	piece = msg[8:]
+	fmt.Printf("Piece idx: %d, begin: %d\n", index, begin)
+	fmt.Printf("Piece data: %v\n", piece)
+	fmt.Printf("ok\n")
+
+}
+
+func (impl *peerImpl) handleBitField(msg []byte) {
 	for i, b := range msg {
 		for j := 0; j < 8; j++ {
 			key := i*8 + j
 			val := (b >> j & 1) == 1
 			if val {
-				h.pieces[key] = struct{}{}
+				impl.pieces[key] = struct{}{}
 			}
 		}
 	}
+
+	impl.notificationMut.RLock()
+	defer impl.notificationMut.RUnlock()
+	var wg sync.WaitGroup
+	for _, piecesChangedNotif := range impl.onPiecesChangedFns {
+		wg.Add(1)
+		go func(f func()) {
+			f()
+			wg.Done()
+		}(piecesChangedNotif)
+	}
+	wg.Wait()
+
 }
 
-func (h peerImpl) handleExtendedMsg(msg []byte) {
+func (impl peerImpl) handleExtendedMsg(msg []byte) {
 	extendedMsgId := msg[0]
 	msgVal := msg[1:]
 
-	h.extHandler.HandleCommand(extendedMsgId, msgVal)
+	impl.extHandler.HandleCommand(extendedMsgId, msgVal)
 }
 
-func (h peerImpl) sendCmd(msg []byte, cmdId byte) {
+func (impl peerImpl) sendCmd(msg []byte, cmdId byte) {
 	// Called for sending extended message
 	msgLen := len(msg)
 
@@ -233,7 +282,7 @@ func (h peerImpl) sendCmd(msg []byte, cmdId byte) {
 	copy(writeBuf[4:], []byte{cmdId})
 	copy(writeBuf[5:], msg)
 
-	writer := bufio.NewWriter(h.conn)
+	writer := bufio.NewWriter(impl.conn)
 	n, err := writer.Write(writeBuf)
 	if err != nil {
 		fmt.Println(err)
@@ -245,34 +294,38 @@ func (h peerImpl) sendCmd(msg []byte, cmdId byte) {
 
 }
 
-func (h peerImpl) getMetadata() {
-	if h.Torrent.Metadata != nil {
-		return
-	}
-	metadata := <-h.extHandler.FetchMetadata()
+func (impl peerImpl) getMetadata() {
+	metadata := <-impl.extHandler.FetchMetadata()
 
 	s := sha1.New()
 	s.Write(metadata)
 	b := s.Sum(nil)
 
 	hash := hex.EncodeToString(b)
-	if hash != h.Torrent.InfoHash {
+	if hash != impl.InfoHash {
 		fmt.Printf("Invalid sum")
 		return
 	}
 
-	h.Torrent.Lock()
-	h.Torrent.Metadata = metadata
 	fmt.Printf("%v", metadata)
-	h.Torrent.Unlock()
-	h.Torrent.HintUpdated()
 
 }
 
-func (p peerImpl) notify(msg NotiMsg) {
+/*
+func (impl peerImpl) notify(msg NotiMsg) {
 	go func() {
-		for _, n := range p.notification {
+		for _, n := range impl.notification {
 			n <- msg
 		}
 	}()
 }
+*/
+
+func (impl *peerImpl) Choke() {}
+func (impl *peerImpl) Unchoke() {
+	impl.sendCmd(nil, 1) // unchoke
+}
+func (impl *peerImpl) Interested() {
+	impl.sendCmd(nil, 2) // interested
+}
+func (impl *peerImpl) Uninterested() {}

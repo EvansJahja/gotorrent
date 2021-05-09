@@ -12,8 +12,25 @@ import (
 	"example.com/gotorrent/lib/core/domain"
 )
 
-func New() peerlist.PeerRepo {
-	return udpPeerList{}
+type UdpPeerList struct {
+	InfoHash string
+	Trackers []string
+}
+
+var _ peerlist.PeerRepo = UdpPeerList{}
+
+func (peerList UdpPeerList) GetPeers() []domain.Host {
+	trackerURLs := peerList.Trackers
+	var hosts []domain.Host
+	for _, tr := range trackerURLs {
+		t, _ := url.Parse(tr)
+		resp, err := peerList.announce(t)
+		if err == nil {
+			hosts = append(hosts, resp.Hosts...)
+		}
+
+	}
+	return hosts
 }
 
 type connectRequest struct {
@@ -145,7 +162,7 @@ func newAnnounceResponse(b []byte) AnnounceResponse {
 	return u
 }
 
-func Announce(u *url.URL) (AnnounceResponse, error) {
+func (peerList UdpPeerList) announce(u *url.URL) (AnnounceResponse, error) {
 
 	transactionId := uint32(time.Now().UnixNano() ^ 0xdeadbeef)
 
@@ -179,7 +196,7 @@ func Announce(u *url.URL) (AnnounceResponse, error) {
 	//connId := connResp.connID
 
 	announceReq := newAnnounceRequest()
-	infoHash, _ := hex.DecodeString("***REMOVED***")
+	infoHash, _ := hex.DecodeString(peerList.InfoHash)
 
 	announceReq.connId = connResp.connID
 	announceReq.transactionId = transactionId
@@ -202,37 +219,3 @@ func Announce(u *url.URL) (AnnounceResponse, error) {
 	return announceResp, nil
 
 }
-
-type udpPeerList struct{}
-
-var _ peerlist.PeerRepo = udpPeerList{}
-
-func (peerList udpPeerList) GetPeers() []domain.Host {
-	l := "***REMOVED***"
-	u, _ := url.Parse(l)
-	v := u.Query()
-	trackerURLs := v["tr"]
-	var hosts []domain.Host
-	for _, tr := range trackerURLs {
-		t, _ := url.Parse(tr)
-		resp, err := Announce(t)
-		if err == nil {
-			hosts = append(hosts, resp.Hosts...)
-		}
-
-	}
-	return hosts
-
-	/*
-		if err != nil {
-			return []domain.Host{}
-		}
-		return resp.Hosts
-	*/
-}
-
-/*
-
- port:28117}]}
-
-*/
