@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/url"
 	"time"
 
@@ -91,12 +92,15 @@ func main() {
 		prog := float32(100.0*x) / 16777216
 		fmt.Printf("Progress: %f%%\n", prog)
 	})
+
+	r.Seek(34749, io.SeekStart)
 	_ = ptr
 	//b := make([]byte, 9900)
 	////io.CopyBuffer(io.Discard, ptr, b)
 
 	f := files.Files{Torrent: &torrentMeta, BasePath: location}
-	f.WritePieceToLocal(0, ptr)
+	//f.CreateFiles()
+	f.WritePieceToLocal(0, r)
 
 	/*
 		fmt.Println("1")
