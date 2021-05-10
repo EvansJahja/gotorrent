@@ -86,7 +86,7 @@ func (f Files) GetLocalPiece(pieceNo int) []byte {
 
 }
 
-func (f Files) WritePieceToLocal(pieceNo int, pieceReader io.ReadSeeker) {
+func (f Files) WritePieceToLocal(pieceNo int, pieceReader io.Reader, readOffset int64) {
 
 	pieceLength := f.Torrent.PieceLength
 
@@ -99,11 +99,8 @@ func (f Files) WritePieceToLocal(pieceNo int, pieceReader io.ReadSeeker) {
 	*/
 
 	skipBytesDueToReader := 0
-	readerPos, err := pieceReader.Seek(0, io.SeekCurrent)
-	if err == nil {
-		skipBytesDueToReader += int(readerPos)
-		skipBytes += skipBytesDueToReader
-	}
+	skipBytesDueToReader += int(readOffset)
+	skipBytes += skipBytesDueToReader
 	/*
 		}
 	*/
@@ -116,24 +113,29 @@ func (f Files) WritePieceToLocal(pieceNo int, pieceReader io.ReadSeeker) {
 
 	//pieceReader := bytes.NewReader(piece)
 
+	baseOfFile := 0
 	for fileIdx, fp := range f.Torrent.Files {
 		if fp.Length <= skipBytes {
 			skipBytes -= fp.Length
+			baseOfFile += fp.Length
 			continue
 		}
 		pathToFile := f.getAbsolutePath(fp.Path)
-		fmt.Printf("Write to %s\n", pathToFile)
+		fmt.Printf("Write %d to %s\n", baseOfFile, pathToFile)
 		fd, err := os.OpenFile(pathToFile, os.O_WRONLY, 0)
-		fd.Truncate(int64(fp.Length))
-		fd.Seek(int64(skipBytes), 1) // Absolute
 		if err != nil {
 			panic(err)
 		}
+		fd.Truncate(int64(fp.Length))
+		fd.Seek(int64(skipBytes), 1) // Absolute
 		remainingToWrite := f.Torrent.Files[fileIdx].Length - skipBytes
 		skipBytes = 0
 
 		limitReader := io.LimitReader(pieceReader, int64(remainingToWrite))
-		io.Copy(fd, limitReader)
+		_, err = io.Copy(fd, limitReader)
+		if err != nil {
+			panic(err)
+		}
 		// Jumps to EOF
 
 	}

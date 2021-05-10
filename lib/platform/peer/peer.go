@@ -19,7 +19,7 @@ import (
 
 const (
 	protoBitTorrent = "BitTorrent protocol"
-	maxRequestSize  = 1 << 13 // 2 ^ 14 or 16 kB
+	maxRequestSize  = 1 << 14 // 2 ^ 14 or 16 kB
 )
 
 type SendMsgFn func(msg []byte)
@@ -94,6 +94,7 @@ func (impl *peerImpl) Connect() error {
 	hostname := net.JoinHostPort(impl.Host.IP.String(), strconv.Itoa(int(impl.Host.Port)))
 	conn, err := net.DialTimeout("tcp", hostname, 3*time.Second)
 	if err != nil {
+		fmt.Printf("Fail connecting to %s, err: %s\n", hostname, err.Error())
 		return err
 	}
 	impl.conn = conn
@@ -101,7 +102,7 @@ func (impl *peerImpl) Connect() error {
 	conn.SetDeadline(time.Now().Add(5 * time.Second))
 
 	if err := impl.doHandshake(); err != nil {
-		fmt.Print(err)
+		fmt.Printf("Fail connecting to %s, err: %s\n", hostname, err.Error())
 		return err
 	}
 

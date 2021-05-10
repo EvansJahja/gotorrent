@@ -1,17 +1,18 @@
 package main
 
 import (
+	"bufio"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"net/url"
+	"sync"
 	"time"
 
 	peerAdapter "example.com/gotorrent/lib/core/adapter/peer"
 	"example.com/gotorrent/lib/core/service/peerlist"
 	"example.com/gotorrent/lib/core/service/peerpool"
 	"example.com/gotorrent/lib/files"
-	"example.com/gotorrent/lib/passthroughreader"
 
 	"example.com/gotorrent/lib/core/domain"
 	"example.com/gotorrent/lib/platform/gcache"
@@ -84,23 +85,48 @@ func main() {
 
 	fmt.Printf("Piece length:  %d\n", torrentMeta.PieceLength)
 
-	r := peerPool.NewPeerPoolReader(0, 16777216)
+	/*
 
-	var x int
-	ptr := passthroughreader.NewPassthrough(r, func(n int) {
-		x += n
-		prog := float32(100.0*x) / 16777216
-		fmt.Printf("Progress: %f%%\n", prog)
-	})
+		var x int
+		ptr := passthroughreader.NewPassthrough(r, func(n int) {
+			x += n
+			prog := float32(100.0*x) / 16777216
+			fmt.Printf("Progress: %f%%\n", prog)
+		})
+	*/
 
-	r.Seek(34749, io.SeekStart)
-	_ = ptr
-	//b := make([]byte, 9900)
+	//seekStart := int64(668725 + 1771504)
+	//b := make([]byte, 100)
 	////io.CopyBuffer(io.Discard, ptr, b)
 
 	f := files.Files{Torrent: &torrentMeta, BasePath: location}
 	//f.CreateFiles()
-	f.WritePieceToLocal(0, r)
+	var wg sync.WaitGroup
+
+	wg.Add(2)
+	go func() {
+		r1 := peerPool.NewPeerPoolReader(0, 16777216)
+		seekStart := int64(10132517)
+		r1.Seek(seekStart, io.SeekStart)
+
+		r1Lim := io.LimitReader(r1, 100000)
+
+		bufRead1 := bufio.NewReader(r1Lim)
+		f.WritePieceToLocal(0, bufRead1, seekStart)
+		wg.Done()
+	}()
+	go func() {
+		r2 := peerPool.NewPeerPoolReader(0, 16777216)
+		seekStart := int64(10132517 + 100000)
+		r2.Seek(seekStart, io.SeekStart)
+
+		r2Lim := io.LimitReader(r2, 100000)
+
+		bufRead1 := bufio.NewReader(r2Lim)
+		f.WritePieceToLocal(0, bufRead1, seekStart)
+		wg.Done()
+	}()
+	wg.Wait()
 
 	/*
 		fmt.Println("1")

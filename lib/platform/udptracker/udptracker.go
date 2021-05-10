@@ -149,13 +149,16 @@ func newAnnounceResponse(b []byte) AnnounceResponse {
 		panic("wrong")
 	}
 
-	fmt.Printf("n = %d", n)
-
 	for i := 0; i < n; i++ {
 		ip := net.IP(b[20+6*i : 20+6*i+4])
 		port := binary.BigEndian.Uint16(b[24+6*i : 24+6*i+4])
 
-		u.Hosts = append(u.Hosts, domain.Host{IP: ip, Port: port})
+		newHost := domain.Host{IP: ip, Port: port}
+		// Note: This is in place due to announce having Port 0
+		if newHost.Port != 0 {
+			u.Hosts = append(u.Hosts, newHost)
+		}
+
 	}
 
 	return u
@@ -213,7 +216,10 @@ func (peerList UdpPeerList) announce(u *url.URL) (AnnounceResponse, error) {
 
 	announceResp := newAnnounceResponse(buffRead)
 
-	fmt.Printf("%+v", announceResp)
+	/* example resp
+	* {Action:1 TxnID:2340680293 Interval:1697 Leechers:8 Seeders:0 Hosts: [...]
+	 */
+	//fmt.Printf("%+v", announceResp)
 	return announceResp, nil
 
 }

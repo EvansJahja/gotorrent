@@ -73,8 +73,8 @@ func (r *peerReader) Read(p []byte) (n int, err error) {
 		fmt.Printf("Timeout %d %d\n", r.curPos, requestedLength)
 		return 0, errors.New("timeout waiting for piece")
 	case recvData := <-r.dataChan:
-		fmt.Printf("Recv %d %d\n", r.curPos, requestedLength)
 		n = copy(p, recvData[:])
+		fmt.Printf("Recv %d %d\n", r.curPos, n)
 		r.curPos += uint32(n)
 		return
 	}

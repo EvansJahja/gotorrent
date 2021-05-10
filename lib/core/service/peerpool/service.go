@@ -26,7 +26,14 @@ type Impl struct {
 var _ Service = &Impl{}
 
 func (impl *Impl) AddHosts(newHosts ...domain.Host) {
-	impl.newHosts = append(impl.newHosts, newHosts...)
+	for _, newHost := range newHosts {
+		for _, existingHost := range impl.newHosts {
+			if newHost.Equal(existingHost) {
+				return
+			}
+		}
+		impl.newHosts = append(impl.newHosts, newHost)
+	}
 }
 
 func (impl *Impl) Start() {
