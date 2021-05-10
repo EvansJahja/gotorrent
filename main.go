@@ -4,10 +4,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/url"
+	"time"
 
 	peerAdapter "example.com/gotorrent/lib/core/adapter/peer"
 	"example.com/gotorrent/lib/core/service/peerlist"
 	"example.com/gotorrent/lib/core/service/peerpool"
+	"example.com/gotorrent/lib/files"
+	"example.com/gotorrent/lib/passthroughreader"
 
 	"example.com/gotorrent/lib/core/domain"
 	"example.com/gotorrent/lib/platform/gcache"
@@ -79,6 +82,35 @@ func main() {
 	torrentMeta := metadata.MustParse()
 
 	fmt.Printf("Piece length:  %d\n", torrentMeta.PieceLength)
+
+	r := peerPool.NewPeerPoolReader(0, 16777216)
+
+	var x int
+	ptr := passthroughreader.NewPassthrough(r, func(n int) {
+		x += n
+		prog := float32(100.0*x) / 16777216
+		fmt.Printf("Progress: %f%%\n", prog)
+	})
+	_ = ptr
+	//b := make([]byte, 9900)
+	////io.CopyBuffer(io.Discard, ptr, b)
+
+	f := files.Files{Torrent: &torrentMeta, BasePath: location}
+	f.WritePieceToLocal(0, ptr)
+
+	/*
+		fmt.Println("1")
+		io.CopyN(io.Discard, r, 1024)
+		fmt.Println("2")
+		io.CopyN(io.Discard, r, 1024)
+		fmt.Println("3")
+		io.CopyN(io.Discard, r, 1024)
+		fmt.Println("4")
+	*/
+	//kio.Copy(io.Discard, r)
+
+	fmt.Printf("Closing app soon \n")
+	time.Sleep(10 * time.Second)
 
 	/*
 		p1 := peerFactory.New(targetHost1)

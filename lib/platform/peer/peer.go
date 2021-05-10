@@ -42,7 +42,7 @@ type peerImpl struct {
 	onChokedChangedFns []func(bool)
 	onPiecesChangedFns []func()
 	onPieceArriveFns   []func(index uint32, begin uint32, piece []byte)
-	notificationMut    sync.RWMutex
+	//notificationMut    sync.RWMutex
 }
 
 func New(h domain.Host, infoHash []byte) peer.Peer {
@@ -73,23 +73,14 @@ func (impl *peerImpl) GetState() peer.State {
 }
 
 func (impl *peerImpl) OnChokedChanged(fn func(isChoked bool)) {
-	impl.notificationMut.Lock()
-	defer impl.notificationMut.Unlock()
 
 	impl.onChokedChangedFns = append(impl.onChokedChangedFns, fn)
 }
 
 func (impl *peerImpl) OnPiecesUpdatedChanged(fn func()) {
-	impl.notificationMut.Lock()
-	defer impl.notificationMut.Unlock()
-
 	impl.onPiecesChangedFns = append(impl.onPiecesChangedFns, fn)
-
 }
 func (impl *peerImpl) OnPieceArrive(fn func(index uint32, begin uint32, piece []byte)) {
-	impl.notificationMut.Lock()
-	defer impl.notificationMut.Unlock()
-
 	impl.onPieceArriveFns = append(impl.onPieceArriveFns, fn)
 }
 
@@ -233,8 +224,6 @@ func (impl *peerImpl) handleMessage(msg []byte) {
 
 func (impl *peerImpl) handleWeAreChoked(weAreChoked bool) {
 	impl.weAreChocked = weAreChoked
-	impl.notificationMut.RLock()
-	defer impl.notificationMut.RUnlock()
 	var wg sync.WaitGroup
 	for _, onChokedChanged := range impl.onChokedChangedFns {
 		wg.Add(1)
@@ -254,9 +243,6 @@ func (impl *peerImpl) handlePiece(msg []byte) {
 	index = binary.BigEndian.Uint32(msg[0:4])
 	begin = binary.BigEndian.Uint32(msg[4:8])
 	piece = msg[8:]
-
-	impl.notificationMut.RLock()
-	defer impl.notificationMut.RUnlock()
 
 	var wg sync.WaitGroup
 	for _, onPieceArriveFn := range impl.onPieceArriveFns {
@@ -280,8 +266,6 @@ func (impl *peerImpl) handleBitField(msg []byte) {
 		}
 	}
 
-	impl.notificationMut.RLock()
-	defer impl.notificationMut.RUnlock()
 	var wg sync.WaitGroup
 	for _, piecesChangedNotif := range impl.onPiecesChangedFns {
 		wg.Add(1)

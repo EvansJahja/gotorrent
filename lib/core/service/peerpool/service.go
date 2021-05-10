@@ -26,7 +26,6 @@ type Impl struct {
 var _ Service = &Impl{}
 
 func (impl *Impl) AddHosts(newHosts ...domain.Host) {
-	FilterNotChoking(impl.connectedPeers)
 	impl.newHosts = append(impl.newHosts, newHosts...)
 }
 
@@ -36,8 +35,6 @@ func (impl *Impl) Start() {
 }
 
 func (impl *Impl) NewPeerPoolReader(pieceNo uint32, pieceLength uint32) io.ReadSeeker {
-	//p := impl.connectedPeers[0]
-	//return peer.NewPeerReader(p, pieceNo, pieceLength)
 	return &poolReaderImpl{impl: impl,
 		pieceNo:     pieceNo,
 		pieceLength: pieceLength,
@@ -52,14 +49,32 @@ type poolReaderImpl struct {
 	curSeek     uint32
 }
 
-func (poolImpl *poolReaderImpl) Read(p []byte) (n int, err error) {
+func (poolImpl *poolReaderImpl) Read(p []byte) (int, error) {
+Retry:
 	filteredPeers := FilterPool(poolImpl.impl.connectedPeers, FilterNotChoking)
 	if len(filteredPeers) == 0 {
-		return 0, errors.New("no peers available")
+		time.Sleep(1 * time.Second)
+		fmt.Println("Waiting for peers")
+		goto Retry
+		//return 0, errors.New("no peers available")
 	}
-	r := peer.NewPeerReader(filteredPeers[0], poolImpl.pieceNo, poolImpl.pieceLength)
+	targetPeer := filteredPeers[0]
+
+	fmt.Printf("Choosing %s out of %d peers\n", targetPeer.GetPeerID(), len(filteredPeers))
+
+	fmt.Println("Creating peer reader")
+	r := peer.NewPeerReader(targetPeer, poolImpl.pieceNo, poolImpl.pieceLength)
 	r.Seek(int64(poolImpl.curSeek), io.SeekStart)
-	return r.Read(p)
+	fmt.Println("Going to read")
+	n, err := r.Read(p)
+	fmt.Println("Done reading")
+	if err != nil {
+		fmt.Printf("%s\n", err.Error())
+		fmt.Println("error")
+
+	}
+	poolImpl.curSeek += uint32(n)
+	return n, err
 }
 
 func (poolImpl *poolReaderImpl) Seek(offset int64, whence int) (int64, error) {
@@ -78,10 +93,10 @@ func (poolImpl *poolReaderImpl) Seek(offset int64, whence int) (int64, error) {
 }
 
 func (impl *Impl) run() {
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	//Ticker:
 	for range ticker.C {
-		fmt.Printf("processing %d new hosts: \n", len(impl.newHosts))
+		//fmt.Printf("processing %d new hosts: \n", len(impl.newHosts))
 		if len(impl.connectedPeers) >= 5 {
 			continue
 		}
@@ -91,7 +106,7 @@ func (impl *Impl) run() {
 
 		var m sync.Mutex
 		var wg sync.WaitGroup
-		var connectedPeers []peer.Peer
+		//var connectedPeers []peer.Peer
 
 		for i, newHost := range impl.newHosts {
 			wg.Add(1)
@@ -102,7 +117,7 @@ func (impl *Impl) run() {
 				if err == nil {
 					m.Lock()
 					fmt.Printf("Connected to %s", string(peer.GetPeerID()))
-					connectedPeers = append(connectedPeers, peer)
+					impl.connectedPeers = append(impl.connectedPeers, peer)
 					m.Unlock()
 				} else {
 					m.Lock()
@@ -114,7 +129,7 @@ func (impl *Impl) run() {
 		wg.Wait()
 		impl.newHosts = []domain.Host{}
 
-		fmt.Printf("Connected peers: %+v\n", connectedPeers)
+		fmt.Printf("Connected peers: %+v\n", impl.connectedPeers)
 
 	}
 }

@@ -2,7 +2,6 @@ package files
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -19,11 +18,8 @@ type Files struct {
 }
 
 func (f Files) CreateFiles() {
-	f.Torrent.RLock()
-	defer f.Torrent.RUnlock()
 
-	meta := f.Torrent.GetMeta()
-	paths := meta.Files
+	paths := f.Torrent.Files
 
 	var wg sync.WaitGroup
 
@@ -51,11 +47,11 @@ func (f Files) CreateFiles() {
 }
 
 func (f Files) GetLocalPiece(pieceNo int) []byte {
-	pieceLength := f.Torrent.GetMeta().PieceLength
+	pieceLength := f.Torrent.PieceLength
 
 	skipBytes := pieceNo * pieceLength
 
-	numOfPieces := len(f.Torrent.GetMeta().Pieces) / 20
+	numOfPieces := len(f.Torrent.Pieces) / 20
 	if pieceNo >= numOfPieces {
 		fmt.Printf("invalid piece no")
 		return nil
@@ -63,7 +59,7 @@ func (f Files) GetLocalPiece(pieceNo int) []byte {
 
 	curPiece := make([]byte, 0, pieceLength)
 
-	for _, fp := range f.Torrent.GetMeta().Files {
+	for _, fp := range f.Torrent.Files {
 		if fp.Length <= skipBytes {
 			skipBytes -= fp.Length
 			continue
@@ -90,21 +86,21 @@ func (f Files) GetLocalPiece(pieceNo int) []byte {
 
 }
 
-func (f Files) WritePieceToLocal(pieceNo int, piece []byte) {
+func (f Files) WritePieceToLocal(pieceNo int, pieceReader io.Reader) {
 
-	pieceLength := f.Torrent.GetMeta().PieceLength
+	pieceLength := f.Torrent.PieceLength
 
 	skipBytes := pieceNo * pieceLength
 
-	numOfPieces := len(f.Torrent.GetMeta().Pieces) / 20
+	numOfPieces := len(f.Torrent.Pieces) / 20
 	if pieceNo >= numOfPieces {
 		fmt.Printf("invalid piece no")
 		return
 	}
 
-	pieceReader := bytes.NewReader(piece)
+	//pieceReader := bytes.NewReader(piece)
 
-	for _, fp := range f.Torrent.GetMeta().Files {
+	for _, fp := range f.Torrent.Files {
 		if fp.Length <= skipBytes {
 			skipBytes -= fp.Length
 			continue
@@ -128,9 +124,9 @@ func (f Files) WritePieceToLocal(pieceNo int, piece []byte) {
 func (f Files) CheckFiles() {
 	// Todo
 
-	v := []byte(f.Torrent.GetMeta().Pieces)
+	v := []byte(f.Torrent.Pieces)
 
-	pieceLength := f.Torrent.GetMeta().PieceLength
+	pieceLength := f.Torrent.PieceLength
 
 	curPiece := make([]byte, 0, pieceLength)
 
@@ -142,7 +138,7 @@ func (f Files) CheckFiles() {
 
 	}
 
-	for _, p := range f.Torrent.GetMeta().Files {
+	for _, p := range f.Torrent.Files {
 		pathToFile := f.getAbsolutePath(p.Path)
 		fd, err := os.Open(pathToFile)
 		if err != nil {
@@ -184,7 +180,7 @@ func (f Files) CheckFiles() {
 
 func (f Files) getAbsolutePath(p []string) string {
 	var pathFragments []string
-	pathFragments = append(pathFragments, f.Torrent.BasePath)
+	pathFragments = append(pathFragments, f.BasePath)
 	pathFragments = append(pathFragments, p...)
 
 	pathToFile := path.Join(pathFragments...)

@@ -2,6 +2,7 @@ package peer
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"time"
 )
@@ -50,7 +51,7 @@ func (r *peerReader) onPieceArrive(index uint32, begin uint32, data []byte) {
 
 }
 func (r *peerReader) Read(p []byte) (n int, err error) {
-	for r.isChoked {
+	for r.peer.GetState().WeAreChocked {
 		return 0, errors.New("choked")
 	}
 
@@ -65,11 +66,14 @@ func (r *peerReader) Read(p []byte) (n int, err error) {
 		return 0, io.EOF
 	}
 
+	fmt.Printf("Request %d %d\n", r.curPos, requestedLength)
 	r.peer.RequestPiece(r.pieceNo, r.curPos, requestedLength)
 	select {
 	case <-time.After(5 * time.Second):
+		fmt.Printf("Timeout %d %d\n", r.curPos, requestedLength)
 		return 0, errors.New("timeout waiting for piece")
 	case recvData := <-r.dataChan:
+		fmt.Printf("Recv %d %d\n", r.curPos, requestedLength)
 		n = copy(p, recvData[:])
 		r.curPos += uint32(n)
 		return
