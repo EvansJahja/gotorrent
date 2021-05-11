@@ -14,7 +14,7 @@ import (
 type Service interface {
 	AddHosts(newHosts ...domain.Host)
 	Start()
-	NewPeerPoolReader(pieceNo uint32, pieceLength uint32) io.ReadSeeker
+	NewPeerPoolReader(pieceNo uint32, pieceLength uint32) io.ReadSeekCloser
 }
 type Impl struct {
 	PeerFactory    peer.PeerFactory
@@ -41,7 +41,7 @@ func (impl *Impl) Start() {
 	go impl.run()
 }
 
-func (impl *Impl) NewPeerPoolReader(pieceNo uint32, pieceLength uint32) io.ReadSeeker {
+func (impl *Impl) NewPeerPoolReader(pieceNo uint32, pieceLength uint32) io.ReadSeekCloser {
 	return &poolReaderImpl{impl: impl,
 		pieceNo:     pieceNo,
 		pieceLength: pieceLength,
@@ -78,10 +78,17 @@ Retry:
 	if err != nil {
 		fmt.Printf("%s\n", err.Error())
 		fmt.Println("error")
+		return 0, err
 
 	}
 	poolImpl.curSeek += uint32(n)
-	return n, err
+	if err != nil {
+		panic("err is not nil")
+	}
+	if n == 0 {
+		panic("n is 0")
+	}
+	return n, nil
 }
 
 func (poolImpl *poolReaderImpl) Seek(offset int64, whence int) (int64, error) {
@@ -97,6 +104,10 @@ func (poolImpl *poolReaderImpl) Seek(offset int64, whence int) (int64, error) {
 		poolImpl.curSeek = poolImpl.pieceLength
 	}
 	return int64(poolImpl.curSeek), nil
+}
+func (poolImpl *poolReaderImpl) Close() error {
+	// TODO
+	return nil
 }
 
 func (impl *Impl) run() {

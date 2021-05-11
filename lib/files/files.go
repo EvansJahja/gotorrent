@@ -2,6 +2,8 @@ package files
 
 import (
 	"bufio"
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -74,7 +76,7 @@ func (f Files) GetLocalPiece(pieceNo int) []byte {
 
 		newBytes, err := io.ReadAll(limReader)
 		if err != nil {
-			return nil
+			panic(err)
 		}
 		curPiece = append(curPiece, newBytes...)
 		if len(curPiece) == pieceLength {
@@ -86,7 +88,42 @@ func (f Files) GetLocalPiece(pieceNo int) []byte {
 
 }
 
-func (f Files) WritePieceToLocal(pieceNo int, pieceReader io.Reader, readOffset int64) {
+func (f Files) WriteSeeker(pieceNo int) io.WriteSeeker {
+	return &writeSeekImpl{
+		f:       f,
+		pieceNo: pieceNo,
+	}
+}
+
+type writeSeekImpl struct {
+	pieceNo int
+	f       Files
+	cursor  int64
+}
+
+func (impl *writeSeekImpl) Write(p []byte) (n int, err error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	reader := bytes.NewReader(p)
+	n, err = impl.f.WritePieceToLocal(impl.pieceNo, reader, impl.cursor)
+	impl.cursor += int64(n)
+	return
+}
+
+func (impl *writeSeekImpl) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case io.SeekCurrent:
+		impl.cursor += offset
+	case io.SeekStart:
+		impl.cursor = offset
+	case io.SeekEnd:
+		impl.cursor = int64(impl.f.Torrent.PieceLength) + offset
+	}
+	return impl.cursor, nil
+}
+
+func (f Files) WritePieceToLocal(pieceNo int, pieceReader io.Reader, readOffset int64) (int, error) {
 
 	pieceLength := f.Torrent.PieceLength
 
@@ -108,12 +145,11 @@ func (f Files) WritePieceToLocal(pieceNo int, pieceReader io.Reader, readOffset 
 	numOfPieces := len(f.Torrent.Pieces) / 20
 	if pieceNo >= numOfPieces {
 		fmt.Printf("invalid piece no")
-		return
+		return 0, errors.New("invalid piece no")
 	}
 
-	//pieceReader := bytes.NewReader(piece)
-
 	baseOfFile := 0
+	cumRead := 0
 	for fileIdx, fp := range f.Torrent.Files {
 		if fp.Length <= skipBytes {
 			skipBytes -= fp.Length
@@ -121,7 +157,6 @@ func (f Files) WritePieceToLocal(pieceNo int, pieceReader io.Reader, readOffset 
 			continue
 		}
 		pathToFile := f.getAbsolutePath(fp.Path)
-		fmt.Printf("Write %d to %s\n", baseOfFile, pathToFile)
 		fd, err := os.OpenFile(pathToFile, os.O_WRONLY, 0)
 		if err != nil {
 			panic(err)
@@ -132,13 +167,20 @@ func (f Files) WritePieceToLocal(pieceNo int, pieceReader io.Reader, readOffset 
 		skipBytes = 0
 
 		limitReader := io.LimitReader(pieceReader, int64(remainingToWrite))
-		_, err = io.Copy(fd, limitReader)
+		n, err := io.Copy(fd, limitReader)
+		cumRead += int(n)
 		if err != nil {
-			panic(err)
+			return cumRead, err
 		}
-		// Jumps to EOF
+		if err == nil {
+			if n == int64(remainingToWrite) {
+				continue
+			}
+		}
 
+		return cumRead, nil
 	}
+	return 0, nil
 }
 
 func (f Files) CheckFiles() {

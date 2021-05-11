@@ -1,14 +1,14 @@
 package main
 
 import (
-	"bufio"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"net/url"
-	"sync"
 	"time"
 
 	peerAdapter "example.com/gotorrent/lib/core/adapter/peer"
+	"example.com/gotorrent/lib/core/bucketdownload"
 	"example.com/gotorrent/lib/core/service/peerlist"
 	"example.com/gotorrent/lib/core/service/peerpool"
 	"example.com/gotorrent/lib/files"
@@ -20,6 +20,24 @@ import (
 
 	"github.com/rapidloop/skv"
 )
+
+func Noise() io.ReadSeekCloser {
+	return impl{}
+}
+
+type impl struct{}
+
+func (im impl) Read(p []byte) (n int, err error) {
+	return rand.Read(p)
+}
+
+func (im impl) Seek(offset int64, whence int) (int64, error) {
+	return 0, nil
+}
+
+func (im impl) Close() error {
+	return nil
+}
 
 func main() {
 	location := "/home/evans/torrent/test/"
@@ -60,6 +78,8 @@ func main() {
 		return
 
 	}
+	//_ = hosts
+	//_ = peerPool
 	peerPool.Start()
 	peerPool.AddHosts(hosts...)
 
@@ -103,32 +123,75 @@ func main() {
 
 	f := files.Files{Torrent: &torrentMeta, BasePath: location}
 	//f.CreateFiles()
-	var wg sync.WaitGroup
 
-	wg.Add(2)
-	go func() {
-		r1 := peerPool.NewPeerPoolReader(0, 16777216)
-		seekStart := int64(10132517)
+	fileWriteSeekerGen :=
+		func() io.WriteSeeker {
+			return f.WriteSeeker(0)
+		}
+
+	poolReaderGen := func() io.ReadSeekCloser {
+
+		//return Noise()
+		return peerPool.NewPeerPoolReader(0, 16777216)
+	}
+
+	bd := bucketdownload.New(poolReaderGen, fileWriteSeekerGen, 4096, 16777216, 10)
+	bd.Start()
+
+	/*
+		//r1 := peerPool.NewPeerPoolReader(0, 16777216)
+		r1 := poolReaderGen()
+		seekStart := int64(0)
 		r1.Seek(seekStart, io.SeekStart)
-
 		r1Lim := io.LimitReader(r1, 3322349)
 
 		bufRead1 := bufio.NewReader(r1Lim)
-		f.WritePieceToLocal(0, bufRead1, seekStart)
-		wg.Done()
-	}()
-	go func() {
-		r2 := peerPool.NewPeerPoolReader(0, 16777216)
-		seekStart := int64(10132517 + 3322349)
-		r2.Seek(seekStart, io.SeekStart)
+		//_ = fileWriteSeekerGen
+		//f.WritePieceToLocal(0, bufRead1, seekStart)
+		writeSeeker := fileWriteSeekerGen()
+		writeSeeker.Seek(seekStart, io.SeekStart)
+		n, err := io.Copy(writeSeeker, bufRead1)
+		if err == nil {
+			// EOF
+			return
+		}
+		if err != nil {
+			fmt.Print("o")
+		}
+		if n != 0 {
+			fmt.Print("o")
+		}
+	*/
 
-		r2Lim := io.LimitReader(r2, 13454867)
+	//f.WritePieceToLocal(0, bufRead1, seekStart)
+	/*
+		var wg sync.WaitGroup
 
-		bufRead1 := bufio.NewReader(r2Lim)
-		f.WritePieceToLocal(0, bufRead1, seekStart)
-		wg.Done()
-	}()
-	wg.Wait()
+		wg.Add(2)
+		go func() {
+			r1 := peerPool.NewPeerPoolReader(0, 16777216)
+			seekStart := int64(10132517)
+			r1.Seek(seekStart, io.SeekStart)
+
+			r1Lim := io.LimitReader(r1, 3322349)
+
+			bufRead1 := bufio.NewReader(r1Lim)
+			f.WritePieceToLocal(0, bufRead1, seekStart)
+			wg.Done()
+		}()
+		go func() {
+			r2 := peerPool.NewPeerPoolReader(0, 16777216)
+			seekStart := int64(10132517 + 3322349)
+			r2.Seek(seekStart, io.SeekStart)
+
+			r2Lim := io.LimitReader(r2, 13454867)
+
+			bufRead1 := bufio.NewReader(r2Lim)
+			f.WritePieceToLocal(0, bufRead1, seekStart)
+			wg.Done()
+		}()
+		wg.Wait()
+	*/
 
 	/*
 		fmt.Println("1")

@@ -1,6 +1,7 @@
 package bucketdownload
 
 import (
+	"fmt"
 	"io"
 	"math"
 	"sync"
@@ -47,12 +48,19 @@ func (impl *impl) Start() {
 
 			limReader := io.LimitReader(reader, int64(size))
 		Retry:
-			_, err := io.Copy(writer, limReader)
+			n, err := io.Copy(writer, limReader)
 			if err != nil {
+				if n != 0 {
+					panic("n is not 0")
+				}
 				if err != io.EOF {
 					goto Retry
 				}
 			}
+			if n == 0 {
+				fmt.Println("n is 0")
+			}
+			reader.Close()
 			wg.Done()
 			<-goroutinelim
 		}(i)
