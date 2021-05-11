@@ -1,12 +1,11 @@
 package files
 
 import (
-	"bufio"
 	"bytes"
+	"crypto/sha1"
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path"
 	"sync"
@@ -184,59 +183,70 @@ func (f Files) WritePieceToLocal(pieceNo int, pieceReader io.Reader, readOffset 
 }
 
 func (f Files) CheckFiles() {
-	// Todo
+	b := f.GetLocalPiece(0)
+	fmt.Print(len(b))
+	fmt.Println("ok")
 
-	v := []byte(f.Torrent.Pieces)
+	hasher := sha1.New()
+	hasher.Write(b)
+	sumresult := hasher.Sum(nil)
+	fmt.Printf("%x", f.Torrent.Pieces[0:20])
+	fmt.Printf("%x", sumresult)
+	/*
+		// Todo
 
-	pieceLength := f.Torrent.PieceLength
+		v := []byte(f.Torrent.Pieces)
 
-	curPiece := make([]byte, 0, pieceLength)
+		pieceLength := f.Torrent.PieceLength
 
-	Z := func(a []byte) {
-		//
-		if len(a) != pieceLength {
-			print("x")
-		}
+		curPiece := make([]byte, 0, pieceLength)
 
-	}
-
-	for _, p := range f.Torrent.Files {
-		pathToFile := f.getAbsolutePath(p.Path)
-		fd, err := os.Open(pathToFile)
-		if err != nil {
-			panic(err)
-		}
-
-		src := bufio.NewReader(fd)
-
-		for {
-			readBuf := io.LimitReader(src, int64(pieceLength-len(curPiece)))
-			newBytes, err := ioutil.ReadAll(readBuf)
-			if len(newBytes) == 0 {
-				break
+		Z := func(a []byte) {
+			//
+			if len(a) != pieceLength {
+				print("x")
 			}
 
+		}
+
+		for _, p := range f.Torrent.Files {
+			pathToFile := f.getAbsolutePath(p.Path)
+			fd, err := os.Open(pathToFile)
 			if err != nil {
-				fmt.Print(err)
-				return
+				panic(err)
 			}
-			//fmt.Println(i)
 
-			curPiece = append(curPiece, newBytes...)
-			//copy(curPiece[len(curPiece):], newBytes)
+			src := bufio.NewReader(fd)
 
-			if len(curPiece) >= pieceLength {
-				//fmt.Print(len(curPiece))
-				Z(curPiece)
-				curPiece = make([]byte, 0, pieceLength)
-				continue
+			for {
+				readBuf := io.LimitReader(src, int64(pieceLength-len(curPiece)))
+				newBytes, err := ioutil.ReadAll(readBuf)
+				if len(newBytes) == 0 {
+					break
+				}
+
+				if err != nil {
+					fmt.Print(err)
+					return
+				}
+				//fmt.Println(i)
+
+				curPiece = append(curPiece, newBytes...)
+				//copy(curPiece[len(curPiece):], newBytes)
+
+				if len(curPiece) >= pieceLength {
+					//fmt.Print(len(curPiece))
+					Z(curPiece)
+					curPiece = make([]byte, 0, pieceLength)
+					continue
+				}
 			}
+
 		}
+		Z(curPiece)
 
-	}
-	Z(curPiece)
-
-	fmt.Print(v)
+		fmt.Print(v)
+	*/
 
 }
 

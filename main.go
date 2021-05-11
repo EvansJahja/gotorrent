@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"time"
 
 	peerAdapter "example.com/gotorrent/lib/core/adapter/peer"
@@ -78,6 +79,7 @@ func main() {
 		return
 
 	}
+
 	//_ = hosts
 	//_ = peerPool
 	peerPool.Start()
@@ -104,6 +106,9 @@ func main() {
 	fmt.Printf("Expected %x\n", infoHash)
 
 	torrentMeta := metadata.MustParse()
+	f := files.Files{Torrent: &torrentMeta, BasePath: location}
+	f.CheckFiles()
+	os.Exit(1)
 
 	fmt.Printf("Piece length:  %d\n", torrentMeta.PieceLength)
 
@@ -121,9 +126,10 @@ func main() {
 	//b := make([]byte, 100)
 	////io.CopyBuffer(io.Discard, ptr, b)
 
-	f := files.Files{Torrent: &torrentMeta, BasePath: location}
 	//f.CreateFiles()
 
+	// We already done piece 0
+	os.Exit(1)
 	fileWriteSeekerGen :=
 		func() io.WriteSeeker {
 			return f.WriteSeeker(0)
