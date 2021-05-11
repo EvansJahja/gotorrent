@@ -72,18 +72,6 @@ func (impl *peerImpl) GetState() peer.State {
 
 }
 
-func (impl *peerImpl) OnChokedChanged(fn func(isChoked bool)) {
-
-	impl.onChokedChangedFns = append(impl.onChokedChangedFns, fn)
-}
-
-func (impl *peerImpl) OnPiecesUpdatedChanged(fn func()) {
-	impl.onPiecesChangedFns = append(impl.onPiecesChangedFns, fn)
-}
-func (impl *peerImpl) OnPieceArrive(fn func(index uint32, begin uint32, piece []byte)) {
-	impl.onPieceArriveFns = append(impl.onPieceArriveFns, fn)
-}
-
 func (impl *peerImpl) GetPeerID() []byte {
 	<-impl.peerHandshakeRespChan
 	return impl.theirPeerID

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"net/url"
@@ -24,14 +23,17 @@ import (
 
 func main() {
 	location := "/home/evans/torrent/test/"
-	magnetURI := "***REMOVED***"
+	magnetStr := "***REMOVED***"
 
-	infoHashStr := "***REMOVED***"
-	infoHash, _ := hex.DecodeString(infoHashStr)
+	//infoHashStr := "***REMOVED***"
+	//infoHash, _ := hex.DecodeString(infoHashStr)
 
-	u, _ := url.Parse(magnetURI)
-	v := u.Query()
-	trackers := v["tr"]
+	u, _ := url.Parse(magnetStr)
+	magnetURI := domain.Magnet{Url: u}
+	infoHash := magnetURI.InfoHash()
+	trackers := magnetURI.Trackers()
+	//v := u.Query()
+	//trackers := v["tr"]
 
 	skvStore, err := skv.Open(location + ".skv.db")
 	if err != nil {
@@ -79,7 +81,7 @@ func main() {
 		panic(err)
 	}
 	fmt.Printf("Received %x\n", metadata.InfoHash())
-	fmt.Printf("Expected %s\n", infoHashStr)
+	fmt.Printf("Expected %x\n", infoHash)
 
 	torrentMeta := metadata.MustParse()
 
@@ -109,7 +111,7 @@ func main() {
 		seekStart := int64(10132517)
 		r1.Seek(seekStart, io.SeekStart)
 
-		r1Lim := io.LimitReader(r1, 100000)
+		r1Lim := io.LimitReader(r1, 3322349)
 
 		bufRead1 := bufio.NewReader(r1Lim)
 		f.WritePieceToLocal(0, bufRead1, seekStart)
@@ -117,10 +119,10 @@ func main() {
 	}()
 	go func() {
 		r2 := peerPool.NewPeerPoolReader(0, 16777216)
-		seekStart := int64(10132517 + 100000)
+		seekStart := int64(10132517 + 3322349)
 		r2.Seek(seekStart, io.SeekStart)
 
-		r2Lim := io.LimitReader(r2, 100000)
+		r2Lim := io.LimitReader(r2, 13454867)
 
 		bufRead1 := bufio.NewReader(r2Lim)
 		f.WritePieceToLocal(0, bufRead1, seekStart)

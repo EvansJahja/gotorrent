@@ -13,7 +13,7 @@ import (
 
 type UdpPeerList struct {
 	InfoHash []byte
-	Trackers []string
+	Trackers []*url.URL
 }
 
 var _ peerlist.PeerRepo = UdpPeerList{}
@@ -21,8 +21,8 @@ var _ peerlist.PeerRepo = UdpPeerList{}
 func (peerList UdpPeerList) GetPeers() []domain.Host {
 	trackerURLs := peerList.Trackers
 	var hosts []domain.Host
-	for _, tr := range trackerURLs {
-		t, _ := url.Parse(tr)
+	for _, t := range trackerURLs {
+
 		resp, err := peerList.announce(t)
 		if err == nil {
 			hosts = append(hosts, resp.Hosts...)
@@ -162,6 +162,11 @@ func newAnnounceResponse(b []byte) AnnounceResponse {
 	}
 
 	return u
+}
+
+// Not stable
+func (peerList UdpPeerList) Announce(u *url.URL) (AnnounceResponse, error) {
+	return peerList.announce(u)
 }
 
 func (peerList UdpPeerList) announce(u *url.URL) (AnnounceResponse, error) {

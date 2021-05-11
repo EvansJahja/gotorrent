@@ -16,7 +16,7 @@ type peerReader struct {
 	dataChan    chan []byte
 }
 
-func NewPeerReader(p Peer, pieceNo uint32, pieceLength uint32) io.ReadSeeker {
+func NewPeerReader(p Peer, pieceNo uint32, pieceLength uint32) io.ReadSeekCloser {
 	pr := peerReader{
 		peer:        p,
 		pieceNo:     pieceNo,
@@ -90,4 +90,10 @@ func (r *peerReader) Seek(offset int64, whence int) (int64, error) {
 		return 0, errors.New("not supported")
 	}
 	return int64(r.curPos), nil
+}
+
+func (r *peerReader) Close() error {
+	r.peer.DisconnectOnChokedChanged(r.onChokedChanged)
+	r.peer.DisconnectOnPieceArrive(r.onPieceArrive)
+	return nil
 }
