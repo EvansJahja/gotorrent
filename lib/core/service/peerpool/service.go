@@ -14,7 +14,8 @@ import (
 type Service interface {
 	AddHosts(newHosts ...domain.Host)
 	Start()
-	NewPeerPoolReader(pieceNo uint32, pieceLength uint32) io.ReadSeekCloser
+	//	NewPeerPoolReader(pieceNo uint32, pieceLength uint32) io.ReadSeekCloser
+	NewPeerPoolReader(pieceNo uint32, pieceLength int, pieceCount int, torrentLength int) io.ReadSeekCloser
 }
 type Impl struct {
 	PeerFactory    peer.PeerFactory
@@ -41,19 +42,23 @@ func (impl *Impl) Start() {
 	go impl.run()
 }
 
-func (impl *Impl) NewPeerPoolReader(pieceNo uint32, pieceLength uint32) io.ReadSeekCloser {
+func (impl *Impl) NewPeerPoolReader(pieceNo uint32, pieceLength int, pieceCount int, torrentLength int) io.ReadSeekCloser {
 	return &poolReaderImpl{impl: impl,
-		pieceNo:     pieceNo,
-		pieceLength: pieceLength,
+		pieceNo:       pieceNo,
+		pieceLength:   pieceLength,
+		pieceCount:    pieceCount,
+		torrentLength: torrentLength,
 	}
 
 }
 
 type poolReaderImpl struct {
-	impl        *Impl
-	pieceNo     uint32
-	pieceLength uint32
-	curSeek     uint32
+	impl          *Impl
+	pieceNo       uint32
+	pieceLength   int
+	curSeek       int
+	pieceCount    int
+	torrentLength int
 }
 
 func (poolImpl *poolReaderImpl) Read(p []byte) (int, error) {
@@ -70,7 +75,27 @@ Retry:
 	fmt.Printf("Choosing %s out of %d peers\n", targetPeer.GetPeerID(), len(filteredPeers))
 
 	fmt.Println("Creating peer reader")
-	r := peer.NewPeerReader(targetPeer, poolImpl.pieceNo, poolImpl.pieceLength)
+
+	// Limit reading to piece length
+	pieceLength := poolImpl.pieceLength
+	if poolImpl.pieceNo == uint32(poolImpl.pieceCount-1) {
+		// Last
+		lastRemainder := poolImpl.torrentLength % poolImpl.pieceLength
+		if lastRemainder != 0 {
+			pieceLength = lastRemainder
+		}
+	}
+	remainingToRead := pieceLength - poolImpl.curSeek
+	bufClamp := len(p)
+	if bufClamp > remainingToRead {
+		bufClamp = remainingToRead
+		if bufClamp < 0 {
+			return 0, errors.New("invalid read pos")
+		}
+	}
+	p = p[:bufClamp] // Clamp to remainingToRead
+
+	r := peer.NewPeerReader(targetPeer, poolImpl.pieceNo)
 	r.Seek(int64(poolImpl.curSeek), io.SeekStart)
 	fmt.Println("Going to read")
 	n, err := r.Read(p)
@@ -81,7 +106,7 @@ Retry:
 		return 0, err
 
 	}
-	poolImpl.curSeek += uint32(n)
+	poolImpl.curSeek += n
 	if err != nil {
 		panic("err is not nil")
 	}
@@ -92,16 +117,28 @@ Retry:
 }
 
 func (poolImpl *poolReaderImpl) Seek(offset int64, whence int) (int64, error) {
+	// Dup code
+
+	pieceLength := poolImpl.pieceLength
+	if poolImpl.pieceNo == uint32(poolImpl.pieceCount-1) {
+		// Last
+		lastRemainder := poolImpl.torrentLength % poolImpl.pieceLength
+		if lastRemainder != 0 {
+			pieceLength = lastRemainder
+		}
+	}
+	// End of Dup code
+
 	switch whence {
 	case io.SeekCurrent:
-		poolImpl.curSeek += uint32(offset)
+		poolImpl.curSeek += int(offset)
 	case io.SeekStart:
-		poolImpl.curSeek = uint32(offset)
+		poolImpl.curSeek = int(offset)
 	case io.SeekEnd:
 		return 0, errors.New("seekend not implemented")
 	}
-	if poolImpl.curSeek > poolImpl.pieceLength {
-		poolImpl.curSeek = poolImpl.pieceLength
+	if poolImpl.curSeek > pieceLength {
+		poolImpl.curSeek = pieceLength
 	}
 	return int64(poolImpl.curSeek), nil
 }

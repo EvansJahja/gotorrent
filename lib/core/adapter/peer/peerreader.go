@@ -8,21 +8,19 @@ import (
 )
 
 type peerReader struct {
-	pieceNo     uint32
-	pieceLength uint32
-	peer        Peer
-	isChoked    bool
-	curPos      uint32
-	dataChan    chan []byte
+	pieceNo  uint32
+	peer     Peer
+	isChoked bool
+	curPos   uint32
+	dataChan chan []byte
 }
 
-func NewPeerReader(p Peer, pieceNo uint32, pieceLength uint32) io.ReadSeekCloser {
+func NewPeerReader(p Peer, pieceNo uint32) io.ReadSeekCloser {
 	pr := peerReader{
-		peer:        p,
-		pieceNo:     pieceNo,
-		pieceLength: pieceLength,
-		dataChan:    make(chan []byte),
-		isChoked:    true,
+		peer:     p,
+		pieceNo:  pieceNo,
+		dataChan: make(chan []byte),
+		isChoked: true,
 	}
 	p.OnChokedChanged(pr.onChokedChanged)
 	p.OnPieceArrive(pr.onPieceArrive)
@@ -56,11 +54,6 @@ func (r *peerReader) Read(p []byte) (n int, err error) {
 	}
 
 	requestedLength := uint32(len(p))
-
-	maxLengthToRequest := r.pieceLength - r.curPos
-	if requestedLength > maxLengthToRequest {
-		requestedLength = maxLengthToRequest
-	}
 
 	if requestedLength <= 0 {
 		return 0, io.EOF

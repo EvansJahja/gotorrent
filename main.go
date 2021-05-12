@@ -41,6 +41,7 @@ func (im impl) Close() error {
 }
 
 func main() {
+	// DOWNLOADED: 0, 241
 	location := "/home/evans/torrent/test/"
 	magnetStr := "***REMOVED***"
 
@@ -106,11 +107,12 @@ func main() {
 	fmt.Printf("Expected %x\n", infoHash)
 
 	torrentMeta := metadata.MustParse()
-	f := files.Files{Torrent: &torrentMeta, BasePath: location}
+	f := files.Files{Torrent: torrentMeta, BasePath: location}
+	//fmt.Printf("piece count %d\n", len(f.Torrent.Pieces)/20) // 242
 	f.CheckFiles()
 	os.Exit(1)
 
-	fmt.Printf("Piece length:  %d\n", torrentMeta.PieceLength)
+	//fmt.Printf("Piece length:  %d\n", torrentMeta.PieceLength)
 
 	/*
 
@@ -129,19 +131,22 @@ func main() {
 	//f.CreateFiles()
 
 	// We already done piece 0
-	os.Exit(1)
+	//os.Exit(1)
+
+	pieceNo := uint32(241)
+
 	fileWriteSeekerGen :=
 		func() io.WriteSeeker {
-			return f.WriteSeeker(0)
+			return f.WriteSeeker(int(pieceNo))
 		}
 
 	poolReaderGen := func() io.ReadSeekCloser {
 
 		//return Noise()
-		return peerPool.NewPeerPoolReader(0, 16777216)
+		return peerPool.NewPeerPoolReader(pieceNo, f.Torrent.PieceLength, f.Torrent.PiecesCount(), f.Torrent.TorrentLength())
 	}
 
-	bd := bucketdownload.New(poolReaderGen, fileWriteSeekerGen, 4096, 16777216, 10)
+	bd := bucketdownload.New(poolReaderGen, fileWriteSeekerGen, 4096, f.Torrent.PieceLength, 10)
 	bd.Start()
 
 	/*

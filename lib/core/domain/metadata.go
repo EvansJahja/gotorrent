@@ -19,6 +19,21 @@ type Torrent struct {
 	Path   []string
 }
 
+func (t Torrent) PiecesCount() int {
+	return len(t.Pieces) / 20
+}
+
+func (t Torrent) TorrentLength() int {
+	if t.Length != 0 {
+		return t.Length
+	}
+	var l int
+	for _, fp := range t.Files {
+		l += fp.Length
+	}
+	return l
+}
+
 type FileInfo struct {
 	Length int
 	Path   []string
