@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"sync"
 	"time"
@@ -45,9 +46,6 @@ func main() {
 	location := "/home/evans/torrent/test/"
 	magnetStr := "***REMOVED***"
 
-	//infoHashStr := "***REMOVED***"
-	//infoHash, _ := hex.DecodeString(infoHashStr)
-
 	u, _ := url.Parse(magnetStr)
 	magnetURI := domain.Magnet{Url: u}
 	infoHash := magnetURI.InfoHash()
@@ -71,7 +69,7 @@ func main() {
 
 	torrentMeta := metadata.MustParse()
 	f := files.Files{Torrent: torrentMeta, BasePath: location}
-	f.CheckFiles()
+	//f.CheckFiles()
 
 	////////////////////////////////
 
@@ -94,11 +92,17 @@ func main() {
 		return
 
 	}
+	_ = hosts
 
 	//_ = hosts
 	//_ = peerPool
 	peerPool.Start()
-	peerPool.AddHosts(hosts...)
+	//peerPool.AddHosts(hosts...)
+	local := domain.Host{
+		IP:   net.IPv4(127, 0, 0, 1),
+		Port: 6881,
+	}
+	peerPool.AddHosts(local)
 
 	/*
 		peerFactory := peerAdapter.NewPeerFactory(infoHash, peer.New)
@@ -135,8 +139,8 @@ func main() {
 
 	var wg sync.WaitGroup
 	var pieceNo uint32
-	conPieces := make(chan struct{}, 3)
-	for pieceNo = 13; pieceNo <= 13; pieceNo++ {
+	conPieces := make(chan struct{}, 1)
+	for pieceNo = 15; pieceNo <= 15; pieceNo++ {
 		conPieces <- struct{}{}
 		wg.Add(1)
 		go func(pieceNo uint32) {
@@ -153,7 +157,7 @@ func main() {
 				return peerPool.NewPeerPoolReader(pieceNo, f.Torrent.PieceLength, f.Torrent.PiecesCount(), f.Torrent.TorrentLength())
 			}
 
-			bd := bucketdownload.New(poolReaderGen, fileWriteSeekerGen, 1<<14, f.Torrent.PieceLength, 3)
+			bd := bucketdownload.New(poolReaderGen, fileWriteSeekerGen, 1024, f.Torrent.PieceLength, 1)
 			bd.Start()
 			wg.Done()
 			<-conPieces

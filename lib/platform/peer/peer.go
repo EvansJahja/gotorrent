@@ -91,14 +91,61 @@ func (impl *peerImpl) GetPeerID() []byte {
 	return impl.theirPeerID
 }
 
-func (impl *peerImpl) Connect() error {
+func Serve(infoHash []byte) error {
+	startPort := 6881
+	endPort := 6889
+	for i := startPort; i < endPort; i++ {
+		listenPort := ":" + strconv.Itoa(i)
+		listen, err := net.Listen("tcp", listenPort)
+		if err == nil {
+			fmt.Printf("Listening on %s\n", listenPort)
+			go acceptLoop(listen, infoHash)
+			return nil
+		}
 
+	}
+	panic("fail listening")
+}
+
+func acceptLoop(l net.Listener, infoHash []byte) {
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			panic(err)
+		}
+		go func(conn net.Conn) {
+			ipStr, portStr, err := net.SplitHostPort(conn.LocalAddr().String())
+			if err != nil {
+				panic(err)
+			}
+			port, err := strconv.Atoi(portStr)
+			if err != nil {
+				panic(err)
+			}
+			h := domain.Host{
+				IP:   net.ParseIP(ipStr),
+				Port: uint16(port),
+			}
+			impl := New(h, infoHash).(*peerImpl)
+			impl.conn = conn
+			impl.handleConnection(conn)
+
+		}(conn)
+	}
+}
+
+func (impl *peerImpl) Connect() error {
 	hostname := net.JoinHostPort(impl.Host.IP.String(), strconv.Itoa(int(impl.Host.Port)))
 	conn, err := net.DialTimeout("tcp", hostname, 3*time.Second)
 	if err != nil {
 		//fmt.Printf("Fail connecting to %s, err: %s\n", hostname, err.Error())
 		return err
 	}
+	return impl.handleConnection(conn)
+}
+func (impl *peerImpl) handleConnection(conn net.Conn) error {
+	hostname := net.JoinHostPort(impl.Host.IP.String(), strconv.Itoa(int(impl.Host.Port)))
+
 	impl.conn = conn
 
 	conn.SetDeadline(time.Now().Add(5 * time.Second))
@@ -111,6 +158,7 @@ func (impl *peerImpl) Connect() error {
 	fmt.Printf("Connected to %s\n", hostname)
 	impl.connected = true
 
+	impl.conn.SetDeadline(time.Now().Add(5 * time.Minute))
 	go impl.handleConn()
 
 	return nil
@@ -183,6 +231,7 @@ func (impl *peerImpl) handleConn() {
 	impl.extHandler = extensions.NewExtHandler(impl.conn, impl.sendCmd)
 
 	impl.extHandler.Init()
+	impl.sendBitfields()
 
 	///impl.extHandler.Startup()
 	// TODO: We don't need this now
@@ -228,10 +277,15 @@ func (impl *peerImpl) handleMessage(msg []byte) {
 		impl.handleWeAreChoked(true)
 	case 1: // Unchoke
 		impl.handleWeAreChoked(false)
+	case 2:
+		impl.handleTheyAreInterested(true)
 	case 5:
 		print("Bitfield")
 		impl.handleBitField(msgVal)
 		//impl.notify(NotiPiecesUpdated)
+	case 6:
+		impl.handleRequest(msgVal)
+
 	case 7:
 		impl.handlePiece(msgVal)
 	case 20:
@@ -259,7 +313,20 @@ func (impl *peerImpl) handleWeAreChoked(weAreChoked bool) {
 	}
 	wg.Wait()
 }
+func (impl *peerImpl) handleTheyAreInterested(interested bool) {
+	impl.Unchoke()
 
+}
+
+func (impl *peerImpl) handleRequest(msg []byte) {
+
+	pieceId := binary.BigEndian.Uint32(msg[0:])
+	begin := binary.BigEndian.Uint32(msg[4:])
+	length := binary.BigEndian.Uint32(msg[8:])
+
+	fmt.Printf("req #%d %d %d\n", pieceId, begin, length)
+
+}
 func (impl *peerImpl) handlePiece(msg []byte) {
 	var index uint32
 	var begin uint32
@@ -339,6 +406,11 @@ func (impl peerImpl) sendCmd(msg []byte, cmdId byte) {
 	}
 
 	//h.c.Write(writeBuf)
+
+}
+func (impl peerImpl) sendBitfields() {
+	msg := make([]byte, 31) // 242 pieces, 8 byte
+	impl.sendCmd(msg, 5)
 
 }
 

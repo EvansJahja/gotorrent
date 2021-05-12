@@ -177,6 +177,9 @@ func (peerList UdpPeerList) announce(u *url.URL) (AnnounceResponse, error) {
 	connReq.transactionId = transactionId
 
 	c, err := net.Dial("udp", u.Host)
+	if err != nil {
+		return AnnounceResponse{}, err
+	}
 	defer c.Close()
 	if err != nil {
 		fmt.Print(err)
@@ -211,7 +214,7 @@ func (peerList UdpPeerList) announce(u *url.URL) (AnnounceResponse, error) {
 
 	c.Write(announceReq.getBytes())
 
-	buffRead = make([]byte, 1024)
+	buffRead = make([]byte, 4096)
 
 	l, err := c.Read(buffRead)
 	if err != nil {

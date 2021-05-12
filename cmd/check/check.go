@@ -3,15 +3,14 @@ package main
 import (
 	"fmt"
 	"net/url"
-	"os"
 
 	"example.com/gotorrent/lib/core/domain"
 	"example.com/gotorrent/lib/platform/udptracker"
 )
 
 func main() {
-	//magnetURI := "***REMOVED***"
-	magnetURI := os.Args[1]
+	magnetURI := "***REMOVED***"
+	//magnetURI := os.Args[1]
 
 	u, _ := url.Parse(magnetURI)
 	magnetU := domain.Magnet{Url: u}
