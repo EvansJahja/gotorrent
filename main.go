@@ -61,6 +61,20 @@ func main() {
 	}
 	defer skvStore.Close()
 
+	var metadata domain.Metadata
+	err = skvStore.Get("metadata", &metadata)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("Received %x\n", metadata.InfoHash())
+	fmt.Printf("Expected %x\n", infoHash)
+
+	torrentMeta := metadata.MustParse()
+	f := files.Files{Torrent: torrentMeta, BasePath: location}
+	f.CheckFiles()
+
+	////////////////////////////////
+
 	hostList := peerlist.Impl{
 		PersistentMetadata: skvStore,
 		PeerList: udptracker.UdpPeerList{
@@ -98,18 +112,7 @@ func main() {
 		}
 	*/
 
-	var metadata domain.Metadata
-	err = skvStore.Get("metadata", &metadata)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("Received %x\n", metadata.InfoHash())
-	fmt.Printf("Expected %x\n", infoHash)
-
-	torrentMeta := metadata.MustParse()
-	f := files.Files{Torrent: torrentMeta, BasePath: location}
 	//fmt.Printf("piece count %d\n", len(f.Torrent.Pieces)/20) // 242
-	f.CheckFiles()
 
 	//fmt.Printf("Piece length:  %d\n", torrentMeta.PieceLength)
 

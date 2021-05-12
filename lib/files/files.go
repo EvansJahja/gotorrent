@@ -70,9 +70,11 @@ func (f Files) GetLocalPiece(pieceNo int) []byte {
 		pathToFile := f.getAbsolutePath(fp.Path)
 		fd, err := os.Open(pathToFile)
 		fd.Seek(int64(skipBytes), 1) // Absolute
+		//fmt.Printf("Read %s [%x]\n", pathToFile, skipBytes)
 		if err != nil {
 			panic(err)
 		}
+		skipBytes = 0
 		limReader := io.LimitReader(fd, int64(pieceLength-len(curPiece)))
 
 		newBytes, err := io.ReadAll(limReader)
@@ -162,6 +164,7 @@ func (f Files) WritePieceToLocal(pieceNo int, pieceReader io.Reader, readOffset 
 		if err != nil {
 			panic(err)
 		}
+		// fmt.Printf("Write to %s [%x]\n", pathToFile, skipBytes)
 		fd.Truncate(int64(fp.Length))
 		fd.Seek(int64(skipBytes), 1) // Absolute
 		remainingToWrite := f.Torrent.Files[fileIdx].Length - skipBytes
@@ -204,12 +207,11 @@ func (f Files) GetPiecesFromFile() []int {
 	return pieces
 }
 func (f Files) CheckFiles() {
-	f.GetPiecesFromFile()
+	//f.GetPiecesFromFile()
 	//pieceNo := 8
-	for pieceNo := 13; pieceNo <= 13; pieceNo++ {
+	for pieceNo := 0; pieceNo <= 13; pieceNo++ {
 
 		b := f.GetLocalPiece(pieceNo)
-		fmt.Printf("%x\n", b[len(b)-100:len(b)-90])
 
 		hasher := sha1.New()
 		hasher.Write(b)
@@ -222,6 +224,8 @@ func (f Files) CheckFiles() {
 			fmt.Printf("exp: %x\n", f.Torrent.Pieces[pieceNo*20:pieceNo*20+20])
 			fmt.Printf("actual: %x\n", sumresult)
 
+		} else {
+			fmt.Printf("#%d OK\n", pieceNo)
 		}
 	}
 
