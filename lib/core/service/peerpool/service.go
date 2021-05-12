@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -63,14 +64,15 @@ type poolReaderImpl struct {
 
 func (poolImpl *poolReaderImpl) Read(p []byte) (int, error) {
 Retry:
-	filteredPeers := FilterPool(poolImpl.impl.connectedPeers, FilterNotChoking)
+	filteredPeers := FilterPool(poolImpl.impl.connectedPeers, FilterConnected, FilterNotChoking)
 	if len(filteredPeers) == 0 {
 		time.Sleep(1 * time.Second)
-		fmt.Println("Waiting for peers")
 		goto Retry
 		//return 0, errors.New("no peers available")
 	}
-	targetPeer := filteredPeers[0]
+	//peerIdx := 0
+	peerIdx := rand.Int() % len(filteredPeers)
+	targetPeer := filteredPeers[peerIdx]
 
 	fmt.Printf("Choosing %s out of %d peers\n", targetPeer.GetPeerID(), len(filteredPeers))
 
@@ -192,9 +194,7 @@ func (impl *Impl) run() {
 func (impl *Impl) setupEventHandler(p peer.Peer) {
 
 	p.OnPiecesUpdatedChanged(func() {
-		p.Unchoke()
 		p.Interested()
-		p.RequestPiece(0, 0, 8)
 
 	})
 	p.OnChokedChanged(func(isChoked bool) {

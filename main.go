@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"os"
 	"time"
 
 	peerAdapter "example.com/gotorrent/lib/core/adapter/peer"
@@ -109,8 +108,7 @@ func main() {
 	torrentMeta := metadata.MustParse()
 	f := files.Files{Torrent: torrentMeta, BasePath: location}
 	//fmt.Printf("piece count %d\n", len(f.Torrent.Pieces)/20) // 242
-	f.CheckFiles()
-	os.Exit(1)
+	//f.CheckFiles()
 
 	//fmt.Printf("Piece length:  %d\n", torrentMeta.PieceLength)
 
@@ -133,7 +131,7 @@ func main() {
 	// We already done piece 0
 	//os.Exit(1)
 
-	pieceNo := uint32(241)
+	pieceNo := uint32(6)
 
 	fileWriteSeekerGen :=
 		func() io.WriteSeeker {
@@ -146,7 +144,7 @@ func main() {
 		return peerPool.NewPeerPoolReader(pieceNo, f.Torrent.PieceLength, f.Torrent.PiecesCount(), f.Torrent.TorrentLength())
 	}
 
-	bd := bucketdownload.New(poolReaderGen, fileWriteSeekerGen, 4096, f.Torrent.PieceLength, 10)
+	bd := bucketdownload.New(poolReaderGen, fileWriteSeekerGen, 1<<14, f.Torrent.PieceLength, 10)
 	bd.Start()
 
 	/*
@@ -216,7 +214,7 @@ func main() {
 	//kio.Copy(io.Discard, r)
 
 	fmt.Printf("Closing app soon \n")
-	time.Sleep(10 * time.Second)
+	time.Sleep(3 * time.Second)
 
 	/*
 		p1 := peerFactory.New(targetHost1)

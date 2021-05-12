@@ -9,6 +9,7 @@ type State struct {
 	TheyAreChocked    bool
 	WeAreInterested   bool
 	TheyAreInterested bool
+	Connected         bool
 }
 
 type Peer interface {

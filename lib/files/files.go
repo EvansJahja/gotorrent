@@ -183,16 +183,16 @@ func (f Files) WritePieceToLocal(pieceNo int, pieceReader io.Reader, readOffset 
 }
 
 func (f Files) CheckFiles() {
-	pieceNo := 240
+	pieceNo := 2
 	b := f.GetLocalPiece(pieceNo)
-	fmt.Print(len(b))
-	fmt.Println("ok")
 
 	hasher := sha1.New()
 	hasher.Write(b)
 	sumresult := hasher.Sum(nil)
 	fmt.Printf("%x\n", f.Torrent.Pieces[pieceNo*20:pieceNo*20+20])
 	fmt.Printf("%x\n", sumresult)
+
+	os.Exit(1)
 	/*
 		// Todo
 

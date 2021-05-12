@@ -20,9 +20,8 @@ func NewPeerReader(p Peer, pieceNo uint32) io.ReadSeekCloser {
 		peer:     p,
 		pieceNo:  pieceNo,
 		dataChan: make(chan []byte),
-		isChoked: true,
 	}
-	p.OnChokedChanged(pr.onChokedChanged)
+	//p.OnChokedChanged(pr.onChokedChanged)
 	p.OnPieceArrive(pr.onPieceArrive)
 	return &pr
 

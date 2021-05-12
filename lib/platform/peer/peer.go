@@ -1,7 +1,6 @@
 package peer
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/binary"
 	"errors"
@@ -37,6 +36,7 @@ type peerImpl struct {
 	theyAreInterested bool
 
 	theirPeerID           []byte
+	connected             bool
 	peerHandshakeRespChan chan struct{}
 
 	onChokedChangedFns []func(bool)
@@ -68,6 +68,7 @@ func (impl *peerImpl) GetState() peer.State {
 		TheyAreChocked:    impl.theyAreChocked,
 		WeAreInterested:   impl.weAreInterested,
 		TheyAreInterested: impl.theyAreInterested,
+		Connected:         impl.connected,
 	}
 
 }
@@ -82,7 +83,7 @@ func (impl *peerImpl) Connect() error {
 	hostname := net.JoinHostPort(impl.Host.IP.String(), strconv.Itoa(int(impl.Host.Port)))
 	conn, err := net.DialTimeout("tcp", hostname, 3*time.Second)
 	if err != nil {
-		fmt.Printf("Fail connecting to %s, err: %s\n", hostname, err.Error())
+		//fmt.Printf("Fail connecting to %s, err: %s\n", hostname, err.Error())
 		return err
 	}
 	impl.conn = conn
@@ -90,11 +91,12 @@ func (impl *peerImpl) Connect() error {
 	conn.SetDeadline(time.Now().Add(5 * time.Second))
 
 	if err := impl.doHandshake(); err != nil {
-		fmt.Printf("Fail connecting to %s, err: %s\n", hostname, err.Error())
+		//fmt.Printf("Fail connecting to %s, err: %s\n", hostname, err.Error())
 		return err
 	}
 
 	fmt.Printf("Connected to %s\n", hostname)
+	impl.connected = true
 
 	go impl.handleConn()
 
@@ -185,6 +187,8 @@ func (impl *peerImpl) handleConn() {
 		go impl.handleMessage(msgBuf)
 	}
 exit:
+	fmt.Printf("Dead: %s\n", impl.theirPeerID)
+	impl.connected = false
 }
 
 func (impl *peerImpl) handleMessage(msg []byte) {
@@ -285,13 +289,12 @@ func (impl peerImpl) sendCmd(msg []byte, cmdId byte) {
 	copy(writeBuf[4:], []byte{cmdId})
 	copy(writeBuf[5:], msg)
 
-	writer := bufio.NewWriter(impl.conn)
+	writer := impl.conn
 	n, err := writer.Write(writeBuf)
 	if err != nil {
 		fmt.Println(err)
 		fmt.Println(n)
 	}
-	writer.Flush()
 
 	//h.c.Write(writeBuf)
 

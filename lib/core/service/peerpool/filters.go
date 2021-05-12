@@ -8,6 +8,13 @@ func FilterNotChoking(peers []peer.Peer) []peer.Peer {
 	})
 }
 
+func FilterConnected(peers []peer.Peer) []peer.Peer {
+	return filter(peers, func(p peer.Peer) bool {
+		return p.GetState().Connected
+	})
+
+}
+
 func filter(peers []peer.Peer, filterFunc func(peer.Peer) bool) []peer.Peer {
 	var res []peer.Peer
 	for _, p := range peers {
