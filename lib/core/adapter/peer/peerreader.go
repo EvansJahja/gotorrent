@@ -22,7 +22,7 @@ func NewPeerReader(p Peer, pieceNo uint32) io.ReadSeekCloser {
 		dataChan: make(chan []byte),
 	}
 	//p.OnChokedChanged(pr.onChokedChanged)
-	p.OnPieceArrive(pr.onPieceArrive)
+	//p.OnPieceArrive(pr.onPieceArrive)
 	return &pr
 
 }
@@ -59,12 +59,13 @@ func (r *peerReader) Read(p []byte) (n int, err error) {
 	}
 
 	fmt.Printf("Request %d %d\n", r.curPos, requestedLength)
-	r.peer.RequestPiece(r.pieceNo, r.curPos, requestedLength)
+	//r.peer.RequestPiece(r.pieceNo, r.curPos, requestedLength)
+	dataChan := r.peer.RequestPieceWithChan(r.pieceNo, r.curPos, requestedLength)
 	select {
 	case <-time.After(5 * time.Second):
 		fmt.Printf("Timeout %d %d\n", r.curPos, requestedLength)
 		return 0, errors.New("timeout waiting for piece")
-	case recvData := <-r.dataChan:
+	case recvData := <-dataChan:
 		n = copy(p, recvData[:])
 		fmt.Printf("Recv %d %d\n", r.curPos, n)
 		r.curPos += uint32(n)

@@ -42,7 +42,15 @@ type peerImpl struct {
 	onChokedChangedFns []func(bool)
 	onPiecesChangedFns []func()
 	onPieceArriveFns   []func(index uint32, begin uint32, piece []byte)
+
+	internalOnPieceArriveChans sync.Map
 	//notificationMut    sync.RWMutex
+}
+
+type keyType struct {
+	pieceId uint32
+	begin   uint32
+	length  uint32
 }
 
 func New(h domain.Host, infoHash []byte) peer.Peer {
@@ -119,6 +127,20 @@ func (impl *peerImpl) RequestPiece(pieceId uint32, begin uint32, length uint32) 
 
 	impl.sendCmd(writeBuf, 6)
 
+}
+
+func (impl *peerImpl) RequestPieceWithChan(pieceId uint32, begin uint32, length uint32) <-chan []byte {
+	resultCh := make(chan []byte, 1)
+	key := keyType{
+		pieceId: pieceId,
+		begin:   begin,
+		length:  length,
+	}
+
+	impl.internalOnPieceArriveChans.Store(key, resultCh)
+	impl.RequestPiece(pieceId, begin, length)
+
+	return resultCh
 }
 
 func (impl *peerImpl) doHandshake() error {
@@ -236,6 +258,16 @@ func (impl *peerImpl) handlePiece(msg []byte) {
 	index = binary.BigEndian.Uint32(msg[0:4])
 	begin = binary.BigEndian.Uint32(msg[4:8])
 	piece = msg[8:]
+
+	key := keyType{
+		pieceId: index,
+		begin:   begin,
+		length:  uint32(len(piece)),
+	}
+	if chInterface, ok := impl.internalOnPieceArriveChans.LoadAndDelete(key); ok {
+		ch := chInterface.(chan []byte)
+		ch <- piece
+	}
 
 	var wg sync.WaitGroup
 	for _, onPieceArriveFn := range impl.onPieceArriveFns {
