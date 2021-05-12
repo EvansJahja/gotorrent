@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"sync"
 	"time"
 
 	peerAdapter "example.com/gotorrent/lib/core/adapter/peer"
@@ -108,7 +109,7 @@ func main() {
 	torrentMeta := metadata.MustParse()
 	f := files.Files{Torrent: torrentMeta, BasePath: location}
 	//fmt.Printf("piece count %d\n", len(f.Torrent.Pieces)/20) // 242
-	//f.CheckFiles()
+	f.CheckFiles()
 
 	//fmt.Printf("Piece length:  %d\n", torrentMeta.PieceLength)
 
@@ -126,26 +127,37 @@ func main() {
 	//b := make([]byte, 100)
 	////io.CopyBuffer(io.Discard, ptr, b)
 
-	//f.CreateFiles()
-
 	// We already done piece 0
 	//os.Exit(1)
 
-	pieceNo := uint32(6)
+	var wg sync.WaitGroup
+	var pieceNo uint32
+	conPieces := make(chan struct{}, 3)
+	for pieceNo = 13; pieceNo <= 13; pieceNo++ {
+		conPieces <- struct{}{}
+		wg.Add(1)
+		go func(pieceNo uint32) {
+			fmt.Printf("Start piece %d\n", pieceNo)
 
-	fileWriteSeekerGen :=
-		func() io.WriteSeeker {
-			return f.WriteSeeker(int(pieceNo))
-		}
+			fileWriteSeekerGen :=
+				func() io.WriteSeeker {
+					return f.WriteSeeker(int(pieceNo))
+				}
 
-	poolReaderGen := func() io.ReadSeekCloser {
+			poolReaderGen := func() io.ReadSeekCloser {
 
-		//return Noise()
-		return peerPool.NewPeerPoolReader(pieceNo, f.Torrent.PieceLength, f.Torrent.PiecesCount(), f.Torrent.TorrentLength())
+				//return Noise()
+				return peerPool.NewPeerPoolReader(pieceNo, f.Torrent.PieceLength, f.Torrent.PiecesCount(), f.Torrent.TorrentLength())
+			}
+
+			bd := bucketdownload.New(poolReaderGen, fileWriteSeekerGen, 1<<14, f.Torrent.PieceLength, 3)
+			bd.Start()
+			wg.Done()
+			<-conPieces
+			fmt.Printf("Done piece %d\n", pieceNo)
+		}(pieceNo)
 	}
-
-	bd := bucketdownload.New(poolReaderGen, fileWriteSeekerGen, 1<<14, f.Torrent.PieceLength, 10)
-	bd.Start()
+	wg.Wait()
 
 	/*
 		//r1 := peerPool.NewPeerPoolReader(0, 16777216)

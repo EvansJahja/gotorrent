@@ -17,6 +17,7 @@ type Peer interface {
 	GetHavePieces() map[int]struct{}
 
 	GetMetadata() (domain.Metadata, error)
+	Hostname() string
 
 	RequestPiece(pieceId uint32, begin uint32, length uint32)
 	RequestPieceWithChan(pieceId uint32, begin uint32, length uint32) <-chan []byte

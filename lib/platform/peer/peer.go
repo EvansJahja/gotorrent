@@ -70,6 +70,11 @@ func New(h domain.Host, infoHash []byte) peer.Peer {
 
 var _ peer.Peer = &peerImpl{}
 
+func (impl *peerImpl) Hostname() string {
+	return impl.Host.IP.String()
+
+}
+
 func (impl *peerImpl) GetState() peer.State {
 	return peer.State{
 		WeAreChocked:      impl.weAreChocked,
@@ -238,6 +243,11 @@ func (impl *peerImpl) handleMessage(msg []byte) {
 }
 
 func (impl *peerImpl) handleWeAreChoked(weAreChoked bool) {
+	if weAreChoked {
+		fmt.Printf("%s choked\n", impl.Host.IP.String())
+	} else {
+		fmt.Printf("%s unchoked\n", impl.Host.IP.String())
+	}
 	impl.weAreChocked = weAreChoked
 	var wg sync.WaitGroup
 	for _, onChokedChanged := range impl.onChokedChangedFns {

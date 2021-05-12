@@ -30,9 +30,9 @@ Retry:
 	peerIdx := rand.Int() % len(filteredPeers)
 	targetPeer := filteredPeers[peerIdx]
 
-	fmt.Printf("Choosing %s out of %d peers\n", targetPeer.GetPeerID(), len(filteredPeers))
+	//fmt.Printf("Choosing %s out of %d peers\n", targetPeer.GetPeerID(), len(filteredPeers))
 
-	fmt.Println("Creating peer reader")
+	//fmt.Println("Creating peer reader")
 
 	// Limit reading to piece length
 	pieceLength := poolImpl.getPieceLength()
@@ -49,9 +49,9 @@ Retry:
 	// Todo: use sync.pool
 	r := peer.NewPeerReader(targetPeer, poolImpl.pieceNo)
 	r.Seek(int64(poolImpl.curSeek), io.SeekStart)
-	fmt.Println("Going to read")
+	//fmt.Println("Going to read")
 	n, err := r.Read(p)
-	fmt.Println("Done reading")
+	//fmt.Println("Done reading")
 	if err != nil {
 		fmt.Printf("%s\n", err.Error())
 		fmt.Println("error")
