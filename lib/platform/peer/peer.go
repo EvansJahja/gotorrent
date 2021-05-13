@@ -56,12 +56,13 @@ type peerImpl struct {
 
 	onChokedChangedFns []func(bool)
 	onPiecesChangedFns []func()
-	onPieceArriveFns   []func(index uint32, begin uint32, piece []byte)
 
 	internalOnPieceArriveChans sync.Map
 	pieceRequestChan           chan peer.PieceRequest
 	//notificationMut    sync.RWMutex
 }
+
+var _ peer.Peer = &peerImpl{}
 
 type keyType struct {
 	pieceId uint32
@@ -388,16 +389,6 @@ func (impl *peerImpl) handlePiece(msg []byte) {
 		ch := chInterface.(chan []byte)
 		ch <- piece
 	}
-
-	var wg sync.WaitGroup
-	for _, onPieceArriveFn := range impl.onPieceArriveFns {
-		wg.Add(1)
-		go func(f func(i uint32, b uint32, p []byte)) {
-			f(index, begin, piece)
-			wg.Done()
-		}(onPieceArriveFn)
-	}
-	wg.Wait()
 }
 
 func (impl *peerImpl) handleBitField(msg []byte) {

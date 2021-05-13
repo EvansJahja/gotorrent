@@ -33,11 +33,9 @@ type Peer interface {
 
 	OnChokedChanged(func(isChoked bool))
 	OnPiecesUpdatedChanged(func())
-	OnPieceArrive(func(index uint32, begin uint32, piece []byte))
 
 	DisconnectOnChokedChanged(func(isChoked bool))
 	DisconnectOnPiecesUpdatedChanged(func())
-	DisconnectOnPieceArrive(func(index uint32, begin uint32, piece []byte))
 
 	PieceRequests() <-chan PieceRequest
 }

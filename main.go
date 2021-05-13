@@ -87,13 +87,16 @@ func main() {
 		NewHosts:    make(chan domain.Host),
 	}
 
-	hosts, err := hostList.GetHosts()
-	if err != nil {
-		fmt.Println(err.Error())
-		return
+	/*
+		hosts, err := hostList.GetHosts()
+		if err != nil {
+			fmt.Println(err.Error())
+			return
 
-	}
-	_ = hosts
+		}
+	*/
+	_ = hostList
+	//_ = hosts
 
 	//_ = hosts
 	//_ = peerPool
