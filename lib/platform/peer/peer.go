@@ -189,21 +189,11 @@ func (impl *peerImpl) GetHavePieces() map[int]struct{} {
 	return impl.pieces
 }
 
-func (impl *peerImpl) RequestPiece(pieceId uint32, begin uint32, length uint32) {
-	writeBuf := make([]byte, 12)
+func (impl *peerImpl) RequestPiece(pieceId uint32, begin uint32, length uint32) <-chan []byte {
 	if length > maxRequestSize {
 		length = maxRequestSize
 	}
 
-	binary.BigEndian.PutUint32(writeBuf[0:], uint32(pieceId))
-	binary.BigEndian.PutUint32(writeBuf[4:], uint32(begin))
-	binary.BigEndian.PutUint32(writeBuf[8:], uint32(length))
-
-	impl.sendCmd(writeBuf, MsgRequest)
-
-}
-
-func (impl *peerImpl) RequestPieceWithChan(pieceId uint32, begin uint32, length uint32) <-chan []byte {
 	resultCh := make(chan []byte, 1)
 	key := keyType{
 		pieceId: pieceId,
@@ -212,7 +202,14 @@ func (impl *peerImpl) RequestPieceWithChan(pieceId uint32, begin uint32, length 
 	}
 
 	impl.internalOnPieceArriveChans.Store(key, resultCh)
-	impl.RequestPiece(pieceId, begin, length)
+
+	writeBuf := make([]byte, 12)
+
+	binary.BigEndian.PutUint32(writeBuf[0:], uint32(pieceId))
+	binary.BigEndian.PutUint32(writeBuf[4:], uint32(begin))
+	binary.BigEndian.PutUint32(writeBuf[8:], uint32(length))
+
+	impl.sendCmd(writeBuf, MsgRequest)
 
 	return resultCh
 }
@@ -300,27 +297,24 @@ exit:
 }
 
 func (impl *peerImpl) handleMessage(msg []byte) {
-	msgType := msg[0]
-	fmt.Printf("Receive msg type %d\n", msgType)
+	msgType := MsgType(msg[0])
 	msgVal := msg[1:]
 
 	switch msgType {
-	case 0: // Choke
+	case MsgChoke:
 		impl.handleWeAreChoked(true)
-	case 1: // Unchoke
+	case MsgUnchoke:
 		impl.handleWeAreChoked(false)
-	case 2:
+	case MsgInterested:
 		impl.handleTheyAreInterested(true)
-	case 5:
+	case MsgBitfield:
 		print("Bitfield")
 		impl.handleBitField(msgVal)
-		//impl.notify(NotiPiecesUpdated)
-	case 6:
+	case MsgRequest:
 		impl.handleRequest(msgVal)
-
-	case 7:
+	case MsgPiece:
 		impl.handlePiece(msgVal)
-	case 20:
+	case MsgExtended:
 		impl.handleExtendedMsg(msgVal)
 
 	default:

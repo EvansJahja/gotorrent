@@ -39,7 +39,7 @@ func (r *peerReader) Read(p []byte) (n int, err error) {
 
 	fmt.Printf("Request #%x %x\n", r.pieceNo, r.curPos)
 	//r.peer.RequestPiece(r.pieceNo, r.curPos, requestedLength)
-	dataChan := r.peer.RequestPieceWithChan(r.pieceNo, r.curPos, requestedLength)
+	dataChan := r.peer.RequestPiece(r.pieceNo, r.curPos, requestedLength)
 	select {
 	case <-time.After(1 * time.Second):
 		fmt.Printf("Timeout <%s> #%x %x\n", r.peer.Hostname(), r.pieceNo, r.curPos)
