@@ -15,6 +15,14 @@ func FilterConnected(peers []peer.Peer) []peer.Peer {
 
 }
 
+func FilterHasPiece(pieceNo uint32) func(peers []peer.Peer) []peer.Peer {
+	return func(peers []peer.Peer) []peer.Peer {
+		return filter(peers, func(p peer.Peer) bool {
+			return p.TheirPieces().ContainPiece(pieceNo)
+		})
+	}
+}
+
 func filter(peers []peer.Peer, filterFunc func(peer.Peer) bool) []peer.Peer {
 	var res []peer.Peer
 	for _, p := range peers {

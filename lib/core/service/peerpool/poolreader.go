@@ -21,7 +21,7 @@ type poolReaderImpl struct {
 
 func (poolImpl *poolReaderImpl) Read(p []byte) (int, error) {
 Retry:
-	filteredPeers := FilterPool(poolImpl.impl.connectedPeers, FilterConnected, FilterNotChoking)
+	filteredPeers := FilterPool(poolImpl.impl.connectedPeers, FilterConnected, FilterNotChoking, FilterHasPiece(poolImpl.pieceNo))
 	if len(filteredPeers) == 0 {
 		time.Sleep(1 * time.Second)
 		goto Retry
