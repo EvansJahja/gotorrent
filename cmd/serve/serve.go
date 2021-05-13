@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	location := "/home/evans/torrent/test2/"
+	location := "/home/evans/torrent/test/"
 	magnetStr := "***REMOVED***"
 
 	u, _ := url.Parse(magnetStr)
@@ -36,6 +36,7 @@ func main() {
 
 	torrentMeta := metadata.MustParse()
 	f := files.Files{Torrent: torrentMeta, BasePath: location}
+	//f.CreateFiles()
 
 	_ = f
 	newPeersChan, err := peer.Serve(infoHash)
@@ -47,6 +48,14 @@ func main() {
 		PeerFactory: peerAdapter.NewPeerFactory(infoHash, peer.New),
 	}.New()
 	peerPool.Start()
+
+	go func() {
+		for req := range peerPool.PieceRequests() {
+			buf := f.GetLocalPiece(int(req.PieceNo))
+			buf = buf[req.Begin : req.Begin+req.Length] // This can't be good
+			req.Response <- buf
+		}
+	}()
 
 	go func() {
 		for newPeer := range newPeersChan {

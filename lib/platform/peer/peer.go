@@ -385,9 +385,11 @@ func (impl *peerImpl) handlePiece(msg []byte) {
 		begin:   begin,
 		length:  uint32(len(piece)),
 	}
-	if chInterface, ok := impl.internalOnPieceArriveChans.LoadAndDelete(key); ok {
+	if chInterface, ok := impl.internalOnPieceArriveChans.Load(key); ok {
 		ch := chInterface.(chan []byte)
 		ch <- piece
+	} else {
+		//panic("no handler")
 	}
 }
 

@@ -3,7 +3,6 @@ package peerpool
 import (
 	"fmt"
 	"io"
-	"math/rand"
 	"sync"
 	"time"
 
@@ -151,14 +150,9 @@ func (impl *peerPoolImpl) setupEventHandler(p peer.Peer) {
 	go func() {
 		fmt.Println("waiting")
 		for req := range p.PieceRequests() {
-			fmt.Printf("got request #%d %d", req.PieceNo, req.Begin)
-			resp := make([]byte, 0, req.Length)
-			for i := 0; i < int(req.Length); i++ {
-				b := byte(rand.Int())
-				resp = append(resp, b)
-			}
-			req.Response <- resp
-			fmt.Printf("responding with random #%d %d", req.PieceNo, req.Begin)
+			fmt.Printf("got request #%d %d\n", req.PieceNo, req.Begin)
+			// Forwarding to request
+			impl.pieceRequest <- req
 		}
 		panic("chan Closed")
 

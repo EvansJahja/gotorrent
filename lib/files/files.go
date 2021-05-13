@@ -20,8 +20,6 @@ type Files struct {
 }
 
 func (f Files) CreateFiles() {
-	os.Exit(1)
-
 	paths := f.Torrent.Files
 
 	var wg sync.WaitGroup

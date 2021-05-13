@@ -11,14 +11,11 @@ import (
 
 	peerAdapter "example.com/gotorrent/lib/core/adapter/peer"
 	"example.com/gotorrent/lib/core/bucketdownload"
-	"example.com/gotorrent/lib/core/service/peerlist"
 	"example.com/gotorrent/lib/core/service/peerpool"
 	"example.com/gotorrent/lib/files"
 
 	"example.com/gotorrent/lib/core/domain"
-	"example.com/gotorrent/lib/platform/gcache"
 	"example.com/gotorrent/lib/platform/peer"
-	"example.com/gotorrent/lib/platform/udptracker"
 
 	"github.com/rapidloop/skv"
 )
@@ -43,13 +40,14 @@ func (im impl) Close() error {
 
 func main() {
 	// DOWNLOADED: 0, 241
-	location := "/home/evans/torrent/test/"
+	location := "/home/evans/torrent/test2/"
 	magnetStr := "***REMOVED***"
 
 	u, _ := url.Parse(magnetStr)
 	magnetURI := domain.Magnet{Url: u}
 	infoHash := magnetURI.InfoHash()
 	trackers := magnetURI.Trackers()
+	_ = trackers
 	//v := u.Query()
 	//trackers := v["tr"]
 
@@ -69,18 +67,24 @@ func main() {
 
 	torrentMeta := metadata.MustParse()
 	f := files.Files{Torrent: torrentMeta, BasePath: location}
-	//f.CheckFiles()
+	// WARNING
+	// f.CreateFiles()
+	// WARNING
+
+	f.CheckFiles()
 
 	////////////////////////////////
 
-	hostList := peerlist.Impl{
-		PersistentMetadata: skvStore,
-		PeerList: udptracker.UdpPeerList{
-			InfoHash: infoHash,
-			Trackers: trackers,
-		},
-		Cache: gcache.NewCache(),
-	}
+	/*
+		hostList := peerlist.Impl{
+			PersistentMetadata: skvStore,
+			PeerList: udptracker.UdpPeerList{
+				InfoHash: infoHash,
+				Trackers: trackers,
+			},
+			Cache: gcache.NewCache(),
+		}
+	*/
 
 	peerPool := peerpool.Factory{
 		PeerFactory: peerAdapter.NewPeerFactory(infoHash, peer.New),
@@ -94,7 +98,6 @@ func main() {
 
 		}
 	*/
-	_ = hostList
 	//_ = hosts
 
 	//_ = hosts
@@ -144,7 +147,7 @@ func main() {
 	var wg sync.WaitGroup
 	var pieceNo uint32
 	conPieces := make(chan struct{}, 1)
-	for pieceNo = 15; pieceNo <= 15; pieceNo++ {
+	for pieceNo = 0; pieceNo <= 0; pieceNo++ {
 		conPieces <- struct{}{}
 		wg.Add(1)
 		go func(pieceNo uint32) {
@@ -161,7 +164,7 @@ func main() {
 				return peerPool.NewPeerPoolReader(pieceNo, f.Torrent.PieceLength, f.Torrent.PiecesCount(), f.Torrent.TorrentLength())
 			}
 
-			bd := bucketdownload.New(poolReaderGen, fileWriteSeekerGen, 1024, f.Torrent.PieceLength, 1)
+			bd := bucketdownload.New(poolReaderGen, fileWriteSeekerGen, 1<<14, f.Torrent.PieceLength, 10)
 			bd.Start()
 			wg.Done()
 			<-conPieces
@@ -347,7 +350,6 @@ func main() {
 	// p.SetUpdateChan(t.GetUpdatedChan())
 
 	// f := files.Files{Torrent: &t}
-	// f.CreateFiles()
 
 	// r := runner.Runner{
 	// 	Torrent: &t,
