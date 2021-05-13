@@ -43,9 +43,9 @@ func main() {
 		panic(err)
 	}
 
-	peerPool := peerpool.Impl{
+	peerPool := peerpool.Factory{
 		PeerFactory: peerAdapter.NewPeerFactory(infoHash, peer.New),
-	}
+	}.New()
 	peerPool.Start()
 
 	go func() {

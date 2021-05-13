@@ -11,7 +11,7 @@ import (
 )
 
 type poolReaderImpl struct {
-	impl          *Impl
+	impl          *peerPoolImpl
 	pieceNo       uint32
 	pieceLength   int
 	curSeek       int

@@ -82,10 +82,9 @@ func main() {
 		Cache: gcache.NewCache(),
 	}
 
-	peerPool := peerpool.Impl{
+	peerPool := peerpool.Factory{
 		PeerFactory: peerAdapter.NewPeerFactory(infoHash, peer.New),
-		NewHosts:    make(chan domain.Host),
-	}
+	}.New()
 
 	/*
 		hosts, err := hostList.GetHosts()

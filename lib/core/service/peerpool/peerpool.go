@@ -11,20 +11,46 @@ import (
 	"example.com/gotorrent/lib/core/domain"
 )
 
-type Impl struct {
-	PeerFactory    peer.PeerFactory
-	connectedHosts []domain.Host
-	NewHosts       chan domain.Host
-	//newHosts       []domain.Host
-	connectedPeers []peer.Peer
+type PeerPool interface {
+	AddPeer(newPeers ...peer.Peer)
+	AddHosts(newHosts ...domain.Host)
+	NewPeerPoolReader(pieceNo uint32, pieceLength int, pieceCount int, torrentLength int) io.ReadSeekCloser
+	Start()
+
+	PieceRequests() <-chan peer.PieceRequest
+}
+type Factory struct {
+	PeerFactory peer.PeerFactory
 }
 
-func (impl *Impl) AddPeer(newPeers ...peer.Peer) {
+func (b Factory) New() PeerPool {
+	return &peerPoolImpl{
+		Factory:      b,
+		newHosts:     make(chan domain.Host),
+		pieceRequest: make(chan peer.PieceRequest),
+	}
+}
+
+type peerPoolImpl struct {
+	Factory
+
+	connectedHosts []domain.Host
+	connectedPeers []peer.Peer
+	newHosts       chan domain.Host
+	pieceRequest   chan peer.PieceRequest
+}
+
+func (impl *peerPoolImpl) PieceRequests() <-chan peer.PieceRequest {
+	return impl.pieceRequest
+}
+
+func (impl *peerPoolImpl) AddPeer(newPeers ...peer.Peer) {
 	for _, p := range newPeers {
 		impl.runPeer(p)
 	}
 }
-func (impl *Impl) AddHosts(newHosts ...domain.Host) {
+
+func (impl *peerPoolImpl) AddHosts(newHosts ...domain.Host) {
 	for _, newHost := range newHosts {
 		for _, existingHost := range impl.connectedHosts {
 			if newHost.Equal(existingHost) {
@@ -32,18 +58,18 @@ func (impl *Impl) AddHosts(newHosts ...domain.Host) {
 			}
 		}
 		go func(newHost domain.Host) {
-			impl.NewHosts <- newHost
+			impl.newHosts <- newHost
 		}(newHost)
 		//impl.newHosts = append(impl.newHosts, newHost)
 	}
 }
 
-func (impl *Impl) Start() {
+func (impl *peerPoolImpl) Start() {
 	fmt.Printf("starting peerpool\n")
 	go impl.run()
 }
 
-func (impl *Impl) NewPeerPoolReader(pieceNo uint32, pieceLength int, pieceCount int, torrentLength int) io.ReadSeekCloser {
+func (impl *peerPoolImpl) NewPeerPoolReader(pieceNo uint32, pieceLength int, pieceCount int, torrentLength int) io.ReadSeekCloser {
 	return &poolReaderImpl{impl: impl,
 		pieceNo:       pieceNo,
 		pieceLength:   pieceLength,
@@ -53,7 +79,7 @@ func (impl *Impl) NewPeerPoolReader(pieceNo uint32, pieceLength int, pieceCount 
 
 }
 
-func (impl *Impl) run() {
+func (impl *peerPoolImpl) run() {
 	ticker := time.NewTicker(1 * time.Second)
 	//Ticker:
 	for range ticker.C {
@@ -70,7 +96,7 @@ func (impl *Impl) run() {
 		var wg sync.WaitGroup
 		//var connectedPeers []peer.Peer
 
-		for newHost := range impl.NewHosts {
+		for newHost := range impl.newHosts {
 			wg.Add(1)
 			go func(host domain.Host) {
 				peer := impl.PeerFactory.New(host)
@@ -85,7 +111,7 @@ func (impl *Impl) run() {
 	}
 }
 
-func (impl *Impl) runPeer(p peer.Peer) {
+func (impl *peerPoolImpl) runPeer(p peer.Peer) {
 	var m sync.Mutex
 	impl.setupEventHandler(p)
 	if p.GetState().Connected {
@@ -108,7 +134,7 @@ func (impl *Impl) runPeer(p peer.Peer) {
 
 }
 
-func (impl *Impl) setupEventHandler(p peer.Peer) {
+func (impl *peerPoolImpl) setupEventHandler(p peer.Peer) {
 
 	p.OnPiecesUpdatedChanged(func() {
 		p.Interested()

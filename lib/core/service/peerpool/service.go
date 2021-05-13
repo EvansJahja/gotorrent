@@ -13,4 +13,4 @@ type Service interface {
 	NewPeerPoolReader(pieceNo uint32, pieceLength int, pieceCount int, torrentLength int) io.ReadSeekCloser
 }
 
-var _ Service = &Impl{}
+var _ Service = &peerPoolImpl{}
