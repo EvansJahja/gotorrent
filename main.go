@@ -71,7 +71,7 @@ func main() {
 	// f.CreateFiles()
 	// WARNING
 
-	f.CheckFiles()
+	//f.CheckFiles()
 
 	////////////////////////////////
 

@@ -90,7 +90,6 @@ var _ peer.Peer = &peerImpl{}
 
 func (impl *peerImpl) Hostname() string {
 	return impl.Host.IP.String()
-
 }
 
 func (impl *peerImpl) GetState() peer.State {
@@ -164,6 +163,7 @@ func (impl *peerImpl) Connect() error {
 	}
 	return impl.handleConnection(conn)
 }
+
 func (impl *peerImpl) handleConnection(conn net.Conn) error {
 	hostname := net.JoinHostPort(impl.Host.IP.String(), strconv.Itoa(int(impl.Host.Port)))
 
@@ -185,6 +185,7 @@ func (impl *peerImpl) handleConnection(conn net.Conn) error {
 	return nil
 
 }
+
 func (impl *peerImpl) GetHavePieces() map[int]struct{} {
 	return impl.pieces
 }
@@ -268,9 +269,10 @@ func (impl *peerImpl) handleConn() {
 
 	for {
 		msgLenBuf := make([]byte, 4)
-		_, err := impl.conn.Read(msgLenBuf)
+		_, err := impl.read(msgLenBuf)
 		if err != nil {
-			break
+			impl.disconnected(err)
+			return
 		}
 		impl.conn.SetDeadline(time.Now().Add(5 * time.Minute))
 		msgLen := binary.BigEndian.Uint32(msgLenBuf)
@@ -282,18 +284,16 @@ func (impl *peerImpl) handleConn() {
 
 		msgBuf := make([]byte, msgLen)
 		for n := 0; n < int(msgLen); {
-			nextN, err := impl.conn.Read(msgBuf[n:])
+			nextN, err := impl.read(msgBuf[n:])
 			if err != nil {
-				goto exit
+				impl.disconnected(err)
+				return
 			}
 			n += nextN
 		}
 
 		go impl.handleMessage(msgBuf)
 	}
-exit:
-	fmt.Printf("Dead: %s\n", impl.theirPeerID)
-	impl.connected = false
 }
 
 func (impl *peerImpl) handleMessage(msg []byte) {
@@ -383,7 +383,7 @@ func (impl *peerImpl) handlePiece(msg []byte) {
 		ch := chInterface.(chan []byte)
 		ch <- piece
 	} else {
-		//panic("no handler")
+		panic("no handler")
 	}
 }
 
@@ -410,14 +410,14 @@ func (impl *peerImpl) handleBitField(msg []byte) {
 
 }
 
-func (impl peerImpl) handleExtendedMsg(msg []byte) {
+func (impl *peerImpl) handleExtendedMsg(msg []byte) {
 	extendedMsgId := msg[0]
 	msgVal := msg[1:]
 
 	impl.extHandler.HandleCommand(extendedMsgId, msgVal)
 }
 
-func (impl peerImpl) sendCmd(msg []byte, msgType MsgType) {
+func (impl *peerImpl) sendCmd(msg []byte, msgType MsgType) {
 	// Called for sending extended message
 	msgLen := len(msg)
 
@@ -428,23 +428,21 @@ func (impl peerImpl) sendCmd(msg []byte, msgType MsgType) {
 	copy(writeBuf[4:], []byte{byte(msgType)})
 	copy(writeBuf[5:], msg)
 
-	writer := impl.conn
-	n, err := writer.Write(writeBuf)
+	_, err := impl.write(writeBuf)
 	if err != nil {
-		fmt.Println(err)
-		fmt.Println(n)
+		impl.disconnected(err)
 	}
 
 	//h.c.Write(writeBuf)
-
 }
-func (impl peerImpl) sendBitfields() {
+
+func (impl *peerImpl) sendBitfields() {
 	msg := make([]byte, 31) // 242 pieces, 8 byte
 	impl.sendCmd(msg, MsgBitfield)
 
 }
 
-func (impl peerImpl) sendPiece(pieceNo uint32, begin uint32, piece []byte) {
+func (impl *peerImpl) sendPiece(pieceNo uint32, begin uint32, piece []byte) {
 	buf := make([]byte, len(piece)+4+4)
 	binary.BigEndian.PutUint32(buf[0:], pieceNo)
 	binary.BigEndian.PutUint32(buf[4:], begin)
@@ -453,7 +451,7 @@ func (impl peerImpl) sendPiece(pieceNo uint32, begin uint32, piece []byte) {
 
 }
 
-func (impl peerImpl) GetMetadata() (domain.Metadata, error) {
+func (impl *peerImpl) GetMetadata() (domain.Metadata, error) {
 	metadataBytes := <-impl.extHandler.FetchMetadata()
 
 	metadata := domain.Metadata(metadataBytes)
@@ -466,21 +464,46 @@ func (impl peerImpl) GetMetadata() (domain.Metadata, error) {
 
 }
 
-/*
-func (impl peerImpl) notify(msg NotiMsg) {
-	go func() {
-		for _, n := range impl.notification {
-			n <- msg
-		}
-	}()
+func (impl *peerImpl) Choke() {
+	impl.sendCmd(nil, MsgChoke)
 }
-*/
-
-func (impl *peerImpl) Choke() {}
 func (impl *peerImpl) Unchoke() {
-	impl.sendCmd(nil, MsgUnchoke) // unchoke
+	impl.sendCmd(nil, MsgUnchoke)
 }
 func (impl *peerImpl) Interested() {
-	impl.sendCmd(nil, MsgInterested) // interested
+	impl.sendCmd(nil, MsgInterested)
 }
-func (impl *peerImpl) Uninterested() {}
+func (impl *peerImpl) Uninterested() {
+	impl.sendCmd(nil, MsgNotInterested)
+}
+
+func (impl *peerImpl) disconnected(reason error) {
+	if !impl.connected {
+		return
+	}
+	fmt.Printf("Dead: %s\n", impl.theirPeerID)
+	impl.connected = false
+	impl.conn.Close()
+}
+
+func (impl *peerImpl) read(b []byte) (int, error) {
+	if !impl.connected {
+		return 0, errors.New("disconnected")
+	}
+	n, err := impl.conn.Read(b)
+	if err != nil {
+		impl.disconnected(err)
+	}
+	return n, err
+}
+func (impl *peerImpl) write(b []byte) (int, error) {
+	if !impl.connected {
+		return 0, errors.New("disconnected")
+	}
+	n, err := impl.conn.Write(b)
+	if err != nil {
+		impl.disconnected(err)
+
+	}
+	return n, err
+}
