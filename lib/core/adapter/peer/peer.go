@@ -14,7 +14,9 @@ type State struct {
 
 type Peer interface {
 	Connect() error
-	GetHavePieces() map[int]struct{}
+	TheirPieces() domain.PieceList
+	OurPieces() domain.PieceList
+	SetOurPiece(pieceNo uint32)
 
 	GetMetadata() (domain.Metadata, error)
 	Hostname() string
@@ -44,23 +46,4 @@ type PieceRequest struct {
 	Begin    uint32
 	Length   uint32
 	Response chan<- []byte
-}
-
-type PeerFactory interface {
-	New(h domain.Host) Peer
-}
-
-type PeerFactoryWithHashFn func(h domain.Host, infoHash []byte) Peer
-
-func NewPeerFactory(infoHash []byte, peerFactoryWithHashFn PeerFactoryWithHashFn) PeerFactory {
-	return peerFactoryFn(
-		func(h domain.Host) Peer {
-			return peerFactoryWithHashFn(h, infoHash)
-		})
-}
-
-type peerFactoryFn func(h domain.Host) Peer
-
-func (p peerFactoryFn) New(h domain.Host) Peer {
-	return p(h)
 }

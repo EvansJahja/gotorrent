@@ -39,11 +39,12 @@ const (
 )
 
 type peerImpl struct {
-	Host       domain.Host
-	InfoHash   []byte
-	pieces     map[int]struct{}
-	extHandler extensions.ExtHandler
-	conn       net.Conn
+	Host        domain.Host
+	InfoHash    []byte
+	theirPieces domain.PieceList
+	ourPieces   domain.PieceList
+	extHandler  extensions.ExtHandler
+	conn        net.Conn
 
 	weAreChocked      bool
 	theyAreChocked    bool
@@ -70,11 +71,21 @@ type keyType struct {
 	length  uint32
 }
 
-func New(h domain.Host, infoHash []byte) peer.Peer {
+type PeerFactory struct {
+	InfoHash     []byte
+	OurPieceList domain.PieceList
+}
+
+func (p PeerFactory) New(host domain.Host) peer.Peer {
+	newPeer := new(host, p.InfoHash).(*peerImpl)
+	newPeer.ourPieces = p.OurPieceList
+	return newPeer
+}
+
+func new(h domain.Host, infoHash []byte) peer.Peer {
 	p := peerImpl{
 		InfoHash:              infoHash,
 		Host:                  h,
-		pieces:                make(map[int]struct{}),
 		peerHandshakeRespChan: make(chan struct{}),
 
 		weAreChocked:      true,
@@ -106,52 +117,6 @@ func (impl *peerImpl) GetState() peer.State {
 func (impl *peerImpl) GetPeerID() []byte {
 	//<-impl.peerHandshakeRespChan
 	return impl.theirPeerID
-}
-
-func Serve(infoHash []byte) (chan peer.Peer, error) {
-	newPeerChan := make(chan peer.Peer)
-	startPort := 6881
-	endPort := 6889
-	for i := startPort; i < endPort; i++ {
-		listenPort := ":" + strconv.Itoa(i)
-		listen, err := net.Listen("tcp", listenPort)
-		if err == nil {
-			fmt.Printf("Listening on %s\n", listenPort)
-			go acceptLoop(listen, infoHash, newPeerChan)
-			return newPeerChan, nil
-		}
-
-	}
-	panic("fail listening")
-}
-
-func acceptLoop(l net.Listener, infoHash []byte, newPeerChan chan peer.Peer) {
-	for {
-		conn, err := l.Accept()
-		fmt.Printf("Accept conn %s\n", conn.RemoteAddr().String())
-		if err != nil {
-			panic(err)
-		}
-		go func(conn net.Conn) {
-			ipStr, portStr, err := net.SplitHostPort(conn.LocalAddr().String())
-			if err != nil {
-				panic(err)
-			}
-			port, err := strconv.Atoi(portStr)
-			if err != nil {
-				panic(err)
-			}
-			h := domain.Host{
-				IP:   net.ParseIP(ipStr),
-				Port: uint16(port),
-			}
-			impl := New(h, infoHash).(*peerImpl)
-			impl.conn = conn
-			impl.handleConnection(conn)
-			newPeerChan <- impl
-
-		}(conn)
-	}
 }
 
 func (impl *peerImpl) Connect() error {
@@ -186,8 +151,17 @@ func (impl *peerImpl) handleConnection(conn net.Conn) error {
 
 }
 
-func (impl *peerImpl) GetHavePieces() map[int]struct{} {
-	return impl.pieces
+func (impl *peerImpl) TheirPieces() domain.PieceList {
+	return impl.theirPieces
+}
+
+func (impl *peerImpl) OurPieces() domain.PieceList {
+	return impl.ourPieces
+}
+
+func (impl *peerImpl) SetOurPiece(pieceNo uint32) {
+	panic("implement me")
+
 }
 
 func (impl *peerImpl) RequestPiece(pieceId uint32, begin uint32, length uint32) <-chan []byte {
@@ -388,15 +362,18 @@ func (impl *peerImpl) handlePiece(msg []byte) {
 }
 
 func (impl *peerImpl) handleBitField(msg []byte) {
-	for i, b := range msg {
-		for j := 0; j < 8; j++ {
-			key := i*8 + j
-			val := (b >> j & 1) == 1
-			if val {
-				impl.pieces[key] = struct{}{}
+	/*
+		for i, b := range msg {
+			for j := 0; j < 8; j++ {
+				key := i*8 + j
+				val := (b >> j & 1) == 1
+				if val {
+					impl.theirPieces[key] = struct{}{}
+				}
 			}
 		}
-	}
+	*/
+	impl.theirPieces = domain.PieceList(msg)
 
 	var wg sync.WaitGroup
 	for _, piecesChangedNotif := range impl.onPiecesChangedFns {
@@ -437,9 +414,7 @@ func (impl *peerImpl) sendCmd(msg []byte, msgType MsgType) {
 }
 
 func (impl *peerImpl) sendBitfields() {
-	msg := make([]byte, 31) // 242 pieces, 8 byte
-	impl.sendCmd(msg, MsgBitfield)
-
+	impl.sendCmd([]byte(impl.ourPieces), MsgBitfield)
 }
 
 func (impl *peerImpl) sendPiece(pieceNo uint32, begin uint32, piece []byte) {

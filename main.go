@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	peerAdapter "example.com/gotorrent/lib/core/adapter/peer"
 	"example.com/gotorrent/lib/core/bucketdownload"
 	"example.com/gotorrent/lib/core/service/peerpool"
 	"example.com/gotorrent/lib/files"
@@ -85,9 +84,14 @@ func main() {
 			Cache: gcache.NewCache(),
 		}
 	*/
+	ourPieces := domain.NewPieceList(torrentMeta.PiecesCount())
+	ourPieces.SetPiece(0)
 
 	peerPool := peerpool.Factory{
-		PeerFactory: peerAdapter.NewPeerFactory(infoHash, peer.New),
+		PeerFactory: peer.PeerFactory{
+			InfoHash:     infoHash,
+			OurPieceList: ourPieces,
+		},
 	}.New()
 
 	/*

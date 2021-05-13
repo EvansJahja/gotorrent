@@ -21,7 +21,7 @@ func TestRequest(t *testing.T) {
 
 		conn := mock_net.NewMockConn(ctrl)
 
-		p := New(domain.Host{}, []byte{}).(*peerImpl)
+		p := new(domain.Host{}, []byte{}).(*peerImpl)
 		p.conn = conn
 
 		conn.EXPECT().Write(gomock.Any()).DoAndReturn(func(b []byte) (int, error) {

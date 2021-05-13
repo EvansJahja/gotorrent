@@ -19,7 +19,9 @@ type PeerPool interface {
 	PieceRequests() <-chan peer.PieceRequest
 }
 type Factory struct {
-	PeerFactory peer.PeerFactory
+	PeerFactory interface {
+		New(host domain.Host) peer.Peer
+	}
 }
 
 func (b Factory) New() PeerPool {
