@@ -61,7 +61,7 @@ func main() {
 
 	go func() {
 		for req := range peerPool.PieceRequests() {
-			buf := f.GetLocalPiece(int(req.PieceNo))
+			buf := f.GetLocalPiece(req.PieceNo)
 			buf = buf[req.Begin : req.Begin+req.Length] // This can't be good
 			req.Response <- buf
 		}

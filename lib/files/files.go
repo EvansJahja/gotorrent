@@ -47,13 +47,13 @@ func (f Files) CreateFiles() {
 
 }
 
-func (f Files) GetLocalPiece(pieceNo int) []byte {
+func (f Files) GetLocalPiece(pieceNo uint32) []byte {
 	pieceLength := f.Torrent.PieceLength
 
-	skipBytes := pieceNo * pieceLength
+	skipBytes := int(pieceNo) * pieceLength
 
 	numOfPieces := len(f.Torrent.Pieces) / 20
-	if pieceNo >= numOfPieces {
+	if int(pieceNo) >= numOfPieces {
 		fmt.Printf("invalid piece no")
 		return nil
 	}
@@ -205,25 +205,31 @@ func (f Files) GetPiecesFromFile() []int {
 	return pieces
 }
 
+func (f Files) VerifyLocalPiece(pieceNo uint32) bool {
+	b := f.GetLocalPiece(pieceNo)
+
+	hasher := sha1.New()
+	hasher.Write(b)
+	sumresult := hasher.Sum(nil)
+
+	expResult := f.Torrent.Pieces[pieceNo*20 : pieceNo*20+20]
+	if !bytes.Equal([]byte(expResult), sumresult) {
+		fmt.Printf("corrupt %d\n", pieceNo)
+
+		fmt.Printf("exp: %x\n", f.Torrent.Pieces[pieceNo*20:pieceNo*20+20])
+		fmt.Printf("actual: %x\n", sumresult)
+		return false
+
+	}
+
+	fmt.Printf("#%d OK\n", pieceNo)
+	return true
+}
+
 func (f Files) CheckFiles() {
-	for pieceNo := 0; pieceNo <= f.Torrent.PiecesCount(); pieceNo++ {
+	for pieceNo := uint32(0); pieceNo < 13; pieceNo++ {
+		f.VerifyLocalPiece(pieceNo)
 
-		b := f.GetLocalPiece(pieceNo)
-
-		hasher := sha1.New()
-		hasher.Write(b)
-		sumresult := hasher.Sum(nil)
-
-		expResult := f.Torrent.Pieces[pieceNo*20 : pieceNo*20+20]
-		if !bytes.Equal([]byte(expResult), sumresult) {
-			fmt.Printf("corrupt %d\n", pieceNo)
-
-			fmt.Printf("exp: %x\n", f.Torrent.Pieces[pieceNo*20:pieceNo*20+20])
-			fmt.Printf("actual: %x\n", sumresult)
-
-		} else {
-			fmt.Printf("#%d OK\n", pieceNo)
-		}
 	}
 
 	os.Exit(1)

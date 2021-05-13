@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
 	"fmt"
 	"io"
 	"net"
@@ -19,26 +18,7 @@ import (
 	"github.com/rapidloop/skv"
 )
 
-func Noise() io.ReadSeekCloser {
-	return impl{}
-}
-
-type impl struct{}
-
-func (im impl) Read(p []byte) (n int, err error) {
-	return rand.Read(p)
-}
-
-func (im impl) Seek(offset int64, whence int) (int64, error) {
-	return 0, nil
-}
-
-func (im impl) Close() error {
-	return nil
-}
-
 func main() {
-	// DOWNLOADED: 0, 241
 	location := "/home/evans/torrent/test2/"
 	magnetStr := "***REMOVED***"
 
@@ -47,8 +27,6 @@ func main() {
 	infoHash := magnetURI.InfoHash()
 	trackers := magnetURI.Trackers()
 	_ = trackers
-	//v := u.Query()
-	//trackers := v["tr"]
 
 	skvStore, err := skv.Open(location + ".skv.db")
 	if err != nil {
@@ -84,8 +62,16 @@ func main() {
 			Cache: gcache.NewCache(),
 		}
 	*/
+
+	var ourPieces domain.PieceList
+
+	if err := skvStore.Get("pieces", &ourPieces); err != nil {
+		ourPieces = domain.NewPieceList(torrentMeta.PiecesCount())
+		skvStore.Put("pieces", ourPieces)
+	}
+
 	ourPiecesFn := func() domain.PieceList {
-		return domain.NewPieceList(torrentMeta.PiecesCount())
+		return ourPieces
 	}
 
 	peerPool := peerpool.Factory{
@@ -153,9 +139,13 @@ func main() {
 	var pieceNo uint32
 	conPieces := make(chan struct{}, 1)
 	for pieceNo = 0; pieceNo <= 0; pieceNo++ {
+		if ourPieces.ContainPiece(pieceNo) {
+			continue
+		}
 		conPieces <- struct{}{}
 		wg.Add(1)
 		go func(pieceNo uint32) {
+		RetryPiece:
 			fmt.Printf("Start piece %d\n", pieceNo)
 
 			fileWriteSeekerGen :=
@@ -164,14 +154,24 @@ func main() {
 				}
 
 			poolReaderGen := func() io.ReadSeekCloser {
-
-				//return Noise()
 				return peerPool.NewPeerPoolReader(pieceNo, f.Torrent.PieceLength, f.Torrent.PiecesCount(), f.Torrent.TorrentLength())
 			}
 
 			bd := bucketdownload.New(poolReaderGen, fileWriteSeekerGen, 1<<14, f.Torrent.PieceLength, 10)
 			bd.Start()
 			wg.Done()
+
+			if ok := f.VerifyLocalPiece(pieceNo); !ok {
+				fmt.Printf("piece %d corrupt, retrying...\n", pieceNo)
+				time.Sleep(5 * time.Second)
+				goto RetryPiece
+
+			}
+			ourPieces.SetPiece(pieceNo)
+			if err := skvStore.Put("pieces", ourPieces); err != nil {
+				fmt.Printf("error store pieces %s\n", err.Error())
+			}
+
 			<-conPieces
 			fmt.Printf("Done piece %d\n", pieceNo)
 		}(pieceNo)
