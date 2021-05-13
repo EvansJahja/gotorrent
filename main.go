@@ -85,7 +85,7 @@ func main() {
 		}
 	*/
 	ourPieces := domain.NewPieceList(torrentMeta.PiecesCount())
-	ourPieces.SetPiece(0)
+	//ourPieces.SetPiece(0)
 
 	peerPool := peerpool.Factory{
 		PeerFactory: peer.PeerFactory{
