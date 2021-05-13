@@ -39,7 +39,6 @@ func main() {
 
 	_ = f
 	ourPieces := domain.NewPieceList(torrentMeta.PiecesCount())
-	ourPieces.SetPiece(0)
 
 	peerFactory := peer.PeerFactory{
 		InfoHash:     infoHash,

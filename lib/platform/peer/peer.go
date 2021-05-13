@@ -323,6 +323,9 @@ func (impl *peerImpl) handleRequest(msg []byte) {
 	pieceId := binary.BigEndian.Uint32(msg[0:])
 	begin := binary.BigEndian.Uint32(msg[4:])
 	length := binary.BigEndian.Uint32(msg[8:])
+	if !impl.ourPieces.ContainPiece(pieceId) {
+		return
+	}
 
 	fmt.Printf("req #%d %d %d\n", pieceId, begin, length)
 	respCh := make(chan []byte)
