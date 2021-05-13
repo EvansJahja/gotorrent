@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"net/url"
 
+	peerAdapter "example.com/gotorrent/lib/core/adapter/peer"
 	"example.com/gotorrent/lib/core/domain"
+	"example.com/gotorrent/lib/core/service/peerpool"
 	"example.com/gotorrent/lib/files"
 	"example.com/gotorrent/lib/platform/peer"
 	"github.com/rapidloop/skv"
@@ -36,7 +38,22 @@ func main() {
 	f := files.Files{Torrent: torrentMeta, BasePath: location}
 
 	_ = f
-	peer.Serve(infoHash)
+	newPeersChan, err := peer.Serve(infoHash)
+	if err != nil {
+		panic(err)
+	}
+
+	peerPool := peerpool.Impl{
+		PeerFactory: peerAdapter.NewPeerFactory(infoHash, peer.New),
+	}
+	peerPool.Start()
+
+	go func() {
+		for newPeer := range newPeersChan {
+			peerPool.AddPeer(newPeer)
+		}
+	}()
+
 	select {}
 
 }

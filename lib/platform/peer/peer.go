@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"example.com/gotorrent/lib/core/adapter/peer"
+	"example.com/gotorrent/lib/extensions"
 
 	"example.com/gotorrent/lib/core/domain"
-	"example.com/gotorrent/lib/extensions"
 )
 
 const (
@@ -22,6 +22,21 @@ const (
 )
 
 type SendMsgFn func(msg []byte)
+
+type MsgType byte
+
+const (
+	MsgChoke         MsgType = 0
+	MsgUnchoke       MsgType = 1
+	MsgInterested    MsgType = 2
+	MsgNotInterested MsgType = 3
+	MsgHave          MsgType = 4
+	MsgBitfield      MsgType = 5
+	MsgRequest       MsgType = 6
+	MsgPiece         MsgType = 7
+	MsgCancel        MsgType = 8
+	MsgExtended      MsgType = 20
+)
 
 type peerImpl struct {
 	Host       domain.Host
@@ -44,6 +59,7 @@ type peerImpl struct {
 	onPieceArriveFns   []func(index uint32, begin uint32, piece []byte)
 
 	internalOnPieceArriveChans sync.Map
+	pieceRequestChan           chan peer.PieceRequest
 	//notificationMut    sync.RWMutex
 }
 
@@ -64,6 +80,7 @@ func New(h domain.Host, infoHash []byte) peer.Peer {
 		theyAreChocked:    true,
 		weAreInterested:   false,
 		theyAreInterested: false,
+		pieceRequestChan:  make(chan peer.PieceRequest),
 	}
 	return &p
 }
@@ -87,11 +104,12 @@ func (impl *peerImpl) GetState() peer.State {
 }
 
 func (impl *peerImpl) GetPeerID() []byte {
-	<-impl.peerHandshakeRespChan
+	//<-impl.peerHandshakeRespChan
 	return impl.theirPeerID
 }
 
-func Serve(infoHash []byte) error {
+func Serve(infoHash []byte) (chan peer.Peer, error) {
+	newPeerChan := make(chan peer.Peer)
 	startPort := 6881
 	endPort := 6889
 	for i := startPort; i < endPort; i++ {
@@ -99,17 +117,18 @@ func Serve(infoHash []byte) error {
 		listen, err := net.Listen("tcp", listenPort)
 		if err == nil {
 			fmt.Printf("Listening on %s\n", listenPort)
-			go acceptLoop(listen, infoHash)
-			return nil
+			go acceptLoop(listen, infoHash, newPeerChan)
+			return newPeerChan, nil
 		}
 
 	}
 	panic("fail listening")
 }
 
-func acceptLoop(l net.Listener, infoHash []byte) {
+func acceptLoop(l net.Listener, infoHash []byte, newPeerChan chan peer.Peer) {
 	for {
 		conn, err := l.Accept()
+		fmt.Printf("Accept conn %s\n", conn.RemoteAddr().String())
 		if err != nil {
 			panic(err)
 		}
@@ -129,6 +148,7 @@ func acceptLoop(l net.Listener, infoHash []byte) {
 			impl := New(h, infoHash).(*peerImpl)
 			impl.conn = conn
 			impl.handleConnection(conn)
+			newPeerChan <- impl
 
 		}(conn)
 	}
@@ -178,7 +198,7 @@ func (impl *peerImpl) RequestPiece(pieceId uint32, begin uint32, length uint32) 
 	binary.BigEndian.PutUint32(writeBuf[4:], uint32(begin))
 	binary.BigEndian.PutUint32(writeBuf[8:], uint32(length))
 
-	impl.sendCmd(writeBuf, 6)
+	impl.sendCmd(writeBuf, MsgRequest)
 
 }
 
@@ -196,6 +216,10 @@ func (impl *peerImpl) RequestPieceWithChan(pieceId uint32, begin uint32, length 
 	return resultCh
 }
 
+func (impl *peerImpl) PieceRequests() <-chan peer.PieceRequest {
+	return impl.pieceRequestChan
+}
+
 func (impl *peerImpl) doHandshake() error {
 	handshakeReq := handshake{
 		proto:        protoBitTorrent,
@@ -203,6 +227,8 @@ func (impl *peerImpl) doHandshake() error {
 		infoHash:     impl.InfoHash,
 		peerID:       []byte("-GO0000-0257f4bc7fa1"),
 	}
+
+	fmt.Println("Send handshake")
 	impl.conn.Write(handshakeReq.getBytes())
 	handshakeRespBuff := make([]byte, 68)
 
@@ -217,18 +243,23 @@ func (impl *peerImpl) doHandshake() error {
 		return errors.New("handshake does not match")
 	}
 
-	go func() {
-		impl.theirPeerID = handshakeResp.peerID
-		close(impl.peerHandshakeRespChan)
-	}()
+	impl.theirPeerID = handshakeResp.peerID
+	//close(impl.peerHandshakeRespChan)
+	/*
+		go func() {
+		}()
+	*/
 
 	return nil
 
 }
 
 func (impl *peerImpl) handleConn() {
+	sendCmdUntyped := extensions.SendMsgFn(func(msg []byte, msgType byte) {
+		impl.sendCmd(msg, MsgType(msgType))
+	})
 
-	impl.extHandler = extensions.NewExtHandler(impl.conn, impl.sendCmd)
+	impl.extHandler = extensions.NewExtHandler(impl.conn, sendCmdUntyped)
 
 	impl.extHandler.Init()
 	impl.sendBitfields()
@@ -325,6 +356,18 @@ func (impl *peerImpl) handleRequest(msg []byte) {
 	length := binary.BigEndian.Uint32(msg[8:])
 
 	fmt.Printf("req #%d %d %d\n", pieceId, begin, length)
+	respCh := make(chan []byte)
+	req := peer.PieceRequest{
+		PieceNo:  pieceId,
+		Begin:    begin,
+		Length:   length,
+		Response: respCh,
+	}
+	go func() {
+		impl.pieceRequestChan <- req
+		resp := <-respCh
+		impl.sendPiece(pieceId, begin, resp)
+	}()
 
 }
 func (impl *peerImpl) handlePiece(msg []byte) {
@@ -387,7 +430,7 @@ func (impl peerImpl) handleExtendedMsg(msg []byte) {
 	impl.extHandler.HandleCommand(extendedMsgId, msgVal)
 }
 
-func (impl peerImpl) sendCmd(msg []byte, cmdId byte) {
+func (impl peerImpl) sendCmd(msg []byte, msgType MsgType) {
 	// Called for sending extended message
 	msgLen := len(msg)
 
@@ -395,7 +438,7 @@ func (impl peerImpl) sendCmd(msg []byte, cmdId byte) {
 
 	writeBuf := make([]byte, msgLen+4+1)
 	binary.BigEndian.PutUint32(writeBuf[0:], uint32(msgLen+1))
-	copy(writeBuf[4:], []byte{cmdId})
+	copy(writeBuf[4:], []byte{byte(msgType)})
 	copy(writeBuf[5:], msg)
 
 	writer := impl.conn
@@ -410,7 +453,16 @@ func (impl peerImpl) sendCmd(msg []byte, cmdId byte) {
 }
 func (impl peerImpl) sendBitfields() {
 	msg := make([]byte, 31) // 242 pieces, 8 byte
-	impl.sendCmd(msg, 5)
+	impl.sendCmd(msg, MsgBitfield)
+
+}
+
+func (impl peerImpl) sendPiece(pieceNo uint32, begin uint32, piece []byte) {
+	buf := make([]byte, len(piece)+4+4)
+	binary.BigEndian.PutUint32(buf[0:], pieceNo)
+	binary.BigEndian.PutUint32(buf[4:], begin)
+	copy(buf[8:], piece)
+	impl.sendCmd(buf, MsgPiece)
 
 }
 
@@ -420,7 +472,7 @@ func (impl peerImpl) GetMetadata() (domain.Metadata, error) {
 	metadata := domain.Metadata(metadataBytes)
 
 	if !bytes.Equal(metadata.InfoHash(), impl.InfoHash) {
-		return nil, errors.New("Invalid sum")
+		return nil, errors.New("invalid sum")
 	}
 
 	return domain.Metadata(metadata), nil
@@ -439,9 +491,9 @@ func (impl peerImpl) notify(msg NotiMsg) {
 
 func (impl *peerImpl) Choke() {}
 func (impl *peerImpl) Unchoke() {
-	impl.sendCmd(nil, 1) // unchoke
+	impl.sendCmd(nil, MsgUnchoke) // unchoke
 }
 func (impl *peerImpl) Interested() {
-	impl.sendCmd(nil, 2) // interested
+	impl.sendCmd(nil, MsgInterested) // interested
 }
 func (impl *peerImpl) Uninterested() {}

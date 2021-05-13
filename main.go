@@ -84,6 +84,7 @@ func main() {
 
 	peerPool := peerpool.Impl{
 		PeerFactory: peerAdapter.NewPeerFactory(infoHash, peer.New),
+		NewHosts:    make(chan domain.Host),
 	}
 
 	hosts, err := hostList.GetHosts()
@@ -136,6 +137,7 @@ func main() {
 
 	// We already done piece 0
 	//os.Exit(1)
+	fmt.Printf("Start asking for pieces\n")
 
 	var wg sync.WaitGroup
 	var pieceNo uint32

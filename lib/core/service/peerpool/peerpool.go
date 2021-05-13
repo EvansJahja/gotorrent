@@ -3,6 +3,7 @@ package peerpool
 import (
 	"fmt"
 	"io"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -13,18 +14,27 @@ import (
 type Impl struct {
 	PeerFactory    peer.PeerFactory
 	connectedHosts []domain.Host
-	newHosts       []domain.Host
+	NewHosts       chan domain.Host
+	//newHosts       []domain.Host
 	connectedPeers []peer.Peer
 }
 
+func (impl *Impl) AddPeer(newPeers ...peer.Peer) {
+	for _, p := range newPeers {
+		impl.runPeer(p)
+	}
+}
 func (impl *Impl) AddHosts(newHosts ...domain.Host) {
 	for _, newHost := range newHosts {
-		for _, existingHost := range impl.newHosts {
+		for _, existingHost := range impl.connectedHosts {
 			if newHost.Equal(existingHost) {
 				return
 			}
 		}
-		impl.newHosts = append(impl.newHosts, newHost)
+		go func(newHost domain.Host) {
+			impl.NewHosts <- newHost
+		}(newHost)
+		//impl.newHosts = append(impl.newHosts, newHost)
 	}
 }
 
@@ -51,38 +61,51 @@ func (impl *Impl) run() {
 		if len(impl.connectedPeers) >= 5 {
 			continue
 		}
-		if len(impl.newHosts) == 0 {
-			continue
-		}
+		/*
+			if len(impl.newHosts) == 0 {
+				continue
+			}
+		*/
 
-		var m sync.Mutex
 		var wg sync.WaitGroup
 		//var connectedPeers []peer.Peer
 
-		for i, newHost := range impl.newHosts {
+		for newHost := range impl.NewHosts {
 			wg.Add(1)
-			go func(idx int, host domain.Host) {
+			go func(host domain.Host) {
 				peer := impl.PeerFactory.New(host)
-				impl.setupEventHandler(peer)
-				err := peer.Connect()
-				if err == nil {
-					m.Lock()
-					fmt.Printf("Connected to %s", string(peer.GetPeerID()))
-					impl.connectedPeers = append(impl.connectedPeers, peer)
-					m.Unlock()
-				} else {
-					m.Lock()
-					m.Unlock()
-				}
+				impl.runPeer(peer)
 				wg.Done()
-			}(i, newHost)
+			}(newHost)
 		}
 		wg.Wait()
-		impl.newHosts = []domain.Host{}
 
 		fmt.Printf("Connected peers: %+v\n", impl.connectedPeers)
 
 	}
+}
+
+func (impl *Impl) runPeer(p peer.Peer) {
+	var m sync.Mutex
+	impl.setupEventHandler(p)
+	if p.GetState().Connected {
+		// Fast track
+		impl.connectedPeers = append(impl.connectedPeers, p)
+		return
+
+	}
+	err := p.Connect()
+	if err == nil {
+		m.Lock()
+		fmt.Printf("AAAA\n")
+		fmt.Printf("W Connected to %s", string(p.GetPeerID()))
+		impl.connectedPeers = append(impl.connectedPeers, p)
+		m.Unlock()
+	} else {
+		m.Lock()
+		m.Unlock()
+	}
+
 }
 
 func (impl *Impl) setupEventHandler(p peer.Peer) {
@@ -99,4 +122,19 @@ func (impl *Impl) setupEventHandler(p peer.Peer) {
 		}
 
 	})
+	go func() {
+		fmt.Println("waiting")
+		for req := range p.PieceRequests() {
+			fmt.Printf("got request #%d %d", req.PieceNo, req.Begin)
+			resp := make([]byte, 0, req.Length)
+			for i := 0; i < int(req.Length); i++ {
+				b := byte(rand.Int())
+				resp = append(resp, b)
+			}
+			req.Response <- resp
+			fmt.Printf("responding with random #%d %d", req.PieceNo, req.Begin)
+		}
+		panic("chan Closed")
+
+	}()
 }

@@ -38,6 +38,15 @@ type Peer interface {
 	DisconnectOnChokedChanged(func(isChoked bool))
 	DisconnectOnPiecesUpdatedChanged(func())
 	DisconnectOnPieceArrive(func(index uint32, begin uint32, piece []byte))
+
+	PieceRequests() <-chan PieceRequest
+}
+
+type PieceRequest struct {
+	PieceNo  uint32
+	Begin    uint32
+	Length   uint32
+	Response chan<- []byte
 }
 
 type PeerFactory interface {
