@@ -84,12 +84,14 @@ func main() {
 			Cache: gcache.NewCache(),
 		}
 	*/
-	ourPieces := domain.NewPieceList(torrentMeta.PiecesCount())
+	ourPiecesFn := func() domain.PieceList {
+		return domain.NewPieceList(torrentMeta.PiecesCount())
+	}
 
 	peerPool := peerpool.Factory{
 		PeerFactory: peer.PeerFactory{
-			InfoHash:     infoHash,
-			OurPieceList: ourPieces,
+			InfoHash:       infoHash,
+			OurPieceListFn: ourPiecesFn,
 		},
 	}.New()
 

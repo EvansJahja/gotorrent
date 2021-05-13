@@ -204,10 +204,9 @@ func (f Files) GetPiecesFromFile() []int {
 	//f.Torrent.PieceLength
 	return pieces
 }
+
 func (f Files) CheckFiles() {
-	//f.GetPiecesFromFile()
-	//pieceNo := 8
-	for pieceNo := 0; pieceNo <= 13; pieceNo++ {
+	for pieceNo := 0; pieceNo <= f.Torrent.PiecesCount(); pieceNo++ {
 
 		b := f.GetLocalPiece(pieceNo)
 

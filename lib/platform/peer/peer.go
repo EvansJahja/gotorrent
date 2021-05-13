@@ -42,7 +42,7 @@ type peerImpl struct {
 	Host        domain.Host
 	InfoHash    []byte
 	theirPieces domain.PieceList
-	ourPieces   domain.PieceList
+	ourPiecesFn func() domain.PieceList
 	extHandler  extensions.ExtHandler
 	conn        net.Conn
 
@@ -72,13 +72,13 @@ type keyType struct {
 }
 
 type PeerFactory struct {
-	InfoHash     []byte
-	OurPieceList domain.PieceList
+	InfoHash       []byte
+	OurPieceListFn func() domain.PieceList
 }
 
 func (p PeerFactory) New(host domain.Host) peer.Peer {
 	newPeer := new(host, p.InfoHash).(*peerImpl)
-	newPeer.ourPieces = p.OurPieceList
+	newPeer.ourPiecesFn = p.OurPieceListFn
 	return newPeer
 }
 
@@ -156,7 +156,7 @@ func (impl *peerImpl) TheirPieces() domain.PieceList {
 }
 
 func (impl *peerImpl) OurPieces() domain.PieceList {
-	return impl.ourPieces
+	return impl.ourPiecesFn()
 }
 
 func (impl *peerImpl) SetOurPiece(pieceNo uint32) {
@@ -323,7 +323,7 @@ func (impl *peerImpl) handleRequest(msg []byte) {
 	pieceId := binary.BigEndian.Uint32(msg[0:])
 	begin := binary.BigEndian.Uint32(msg[4:])
 	length := binary.BigEndian.Uint32(msg[8:])
-	if !impl.ourPieces.ContainPiece(pieceId) {
+	if !impl.ourPiecesFn().ContainPiece(pieceId) {
 		return
 	}
 
@@ -417,7 +417,7 @@ func (impl *peerImpl) sendCmd(msg []byte, msgType MsgType) {
 }
 
 func (impl *peerImpl) sendBitfields() {
-	impl.sendCmd([]byte(impl.ourPieces), MsgBitfield)
+	impl.sendCmd([]byte(impl.ourPiecesFn()), MsgBitfield)
 }
 
 func (impl *peerImpl) sendPiece(pieceNo uint32, begin uint32, piece []byte) {

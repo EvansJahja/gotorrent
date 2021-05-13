@@ -39,10 +39,14 @@ func main() {
 
 	_ = f
 	ourPieces := domain.NewPieceList(torrentMeta.PiecesCount())
+	ourPiecesFn := func() domain.PieceList {
+		return ourPieces
+	}
+	ourPieces.SetPiece(0)
 
 	peerFactory := peer.PeerFactory{
-		InfoHash:     infoHash,
-		OurPieceList: ourPieces,
+		InfoHash:       infoHash,
+		OurPieceListFn: ourPiecesFn,
 	}
 
 	newPeersChan, err := peerFactory.Serve(infoHash)
