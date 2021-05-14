@@ -9,20 +9,18 @@ import (
 	"time"
 
 	"example.com/gotorrent/lib/core/bucketdownload"
+	"example.com/gotorrent/lib/core/domain"
 	"example.com/gotorrent/lib/core/service/peerlist"
 	"example.com/gotorrent/lib/core/service/peerpool"
 	"example.com/gotorrent/lib/files"
-
-	"example.com/gotorrent/lib/core/domain"
 	"example.com/gotorrent/lib/platform/gcache"
 	"example.com/gotorrent/lib/platform/peer"
 	"example.com/gotorrent/lib/platform/udptracker"
-
 	"github.com/rapidloop/skv"
 )
 
 func main() {
-	location := "/home/evans/torrent/test/"
+	location := "/home/evans/torrent/test2/"
 	magnetStr := "***REMOVED***"
 
 	u, _ := url.Parse(magnetStr)
@@ -88,6 +86,14 @@ func main() {
 		},
 	}.New()
 
+	go func() {
+		for req := range peerPool.PieceRequests() {
+			buf := f.GetLocalPiece(req.PieceNo)
+			buf = buf[req.Begin : req.Begin+req.Length] // TODO: Refactor
+			req.Response <- buf
+		}
+	}()
+
 	/*
 		hosts, err := hostList.GetHosts()
 		if err != nil {
@@ -95,16 +101,15 @@ func main() {
 			return
 
 		}
+		peerPool.AddHosts(hosts...)
 	*/
-	//peerPool.AddHosts(hosts...)
+	peerPool.Start()
 
 	local := domain.Host{
 		IP:   net.IPv4(127, 0, 0, 1),
-		Port: 6882,
+		Port: 6881,
 	}
 	peerPool.AddHosts(local)
-
-	peerPool.Start()
 
 	newPeersChan, err := peerFactory.Serve(infoHash)
 	if err != nil {
@@ -114,14 +119,6 @@ func main() {
 	go func() {
 		for newPeer := range newPeersChan {
 			peerPool.AddPeer(newPeer)
-		}
-	}()
-
-	go func() {
-		for req := range peerPool.PieceRequests() {
-			buf := f.GetLocalPiece(req.PieceNo)
-			buf = buf[req.Begin : req.Begin+req.Length] // TODO: Refactor
-			req.Response <- buf
 		}
 	}()
 

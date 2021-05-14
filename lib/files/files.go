@@ -170,6 +170,7 @@ func (f Files) WritePieceToLocal(pieceNo int, pieceReader io.Reader, readOffset 
 
 		limitReader := io.LimitReader(pieceReader, int64(remainingToWrite))
 		n, err := io.Copy(fd, limitReader)
+		fd.Close()
 		cumRead += int(n)
 		if err != nil {
 			return cumRead, err

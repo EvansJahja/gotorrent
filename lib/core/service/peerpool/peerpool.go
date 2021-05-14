@@ -113,7 +113,6 @@ func (impl *peerPoolImpl) run() {
 }
 
 func (impl *peerPoolImpl) runPeer(p peer.Peer) {
-	var m sync.Mutex
 	impl.setupEventHandler(p)
 	if p.GetState().Connected {
 		// Fast track
@@ -121,16 +120,15 @@ func (impl *peerPoolImpl) runPeer(p peer.Peer) {
 		return
 
 	}
+RetryConnect:
 	err := p.Connect()
+
 	if err == nil {
-		m.Lock()
-		fmt.Printf("AAAA\n")
-		fmt.Printf("W Connected to %s", string(p.GetPeerID()))
+		fmt.Printf("W Connected to %s\n", string(p.GetPeerID()))
 		impl.connectedPeers = append(impl.connectedPeers, p)
-		m.Unlock()
 	} else {
-		m.Lock()
-		m.Unlock()
+		time.Sleep(5 * time.Second)
+		goto RetryConnect
 	}
 
 }
