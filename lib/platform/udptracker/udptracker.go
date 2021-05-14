@@ -1,5 +1,8 @@
 package udptracker
 
+/*
+ * BEP 15 UDPTracker
+ */
 import (
 	"encoding/binary"
 	"fmt"
@@ -7,6 +10,7 @@ import (
 	"net/url"
 	"time"
 
+	"example.com/gotorrent/lib/core/adapter/clock"
 	"example.com/gotorrent/lib/core/adapter/peerlist"
 	"example.com/gotorrent/lib/core/domain"
 )
@@ -14,9 +18,13 @@ import (
 type UdpPeerList struct {
 	InfoHash []byte
 	Trackers []*url.URL
+	Clock    clock.Clock
 }
 
 var _ peerlist.PeerRepo = UdpPeerList{}
+
+func (peerList UdpPeerList) Start() {}
+func (peerList UdpPeerList) Stop()  {}
 
 func (peerList UdpPeerList) GetPeers() []domain.Host {
 	trackerURLs := peerList.Trackers
@@ -171,7 +179,7 @@ func (peerList UdpPeerList) Announce(u *url.URL) (AnnounceResponse, error) {
 
 func (peerList UdpPeerList) announce(u *url.URL) (AnnounceResponse, error) {
 
-	transactionId := uint32(time.Now().UnixNano() ^ 0xdeadbeef)
+	transactionId := uint32(peerList.Clock.Now().UnixNano() ^ 0xdeadbeef)
 
 	connReq := newConnectRequest()
 	connReq.transactionId = transactionId
@@ -185,7 +193,7 @@ func (peerList UdpPeerList) announce(u *url.URL) (AnnounceResponse, error) {
 		fmt.Print(err)
 		return AnnounceResponse{}, err
 	}
-	c.SetDeadline(time.Now().Add(3 * time.Second))
+	c.SetDeadline(peerList.Clock.Now().Add(3 * time.Second))
 	bytesToWrite := connReq.getBytes()
 
 	c.Write(bytesToWrite)

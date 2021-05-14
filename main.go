@@ -5,6 +5,8 @@ import (
 	"io"
 	"net"
 	"net/url"
+	"os"
+	"os/signal"
 	"sync"
 	"time"
 
@@ -16,12 +18,21 @@ import (
 	"example.com/gotorrent/lib/core/domain"
 	"example.com/gotorrent/lib/platform/gcache"
 	"example.com/gotorrent/lib/platform/peer"
+	"example.com/gotorrent/lib/platform/realclock"
 	"example.com/gotorrent/lib/platform/udptracker"
+	"example.com/gotorrent/lib/platform/upnp"
 
 	"github.com/rapidloop/skv"
 )
 
 func main() {
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt)
+	fmt.Println("Hi")
+	defer func() {
+		fmt.Println("Bye")
+	}()
+
 	location := "/home/evans/torrent/test/"
 	magnetStr := "***REMOVED***"
 
@@ -51,17 +62,20 @@ func main() {
 	// f.CreateFiles()
 	// WARNING
 
-	//f.CheckFiles()
-
 	////////////////////////////////
+
+	udpPeerList := udptracker.UdpPeerList{
+		InfoHash: infoHash,
+		Trackers: trackers,
+		Clock:    realclock.RealClock{},
+	}
+	udpPeerList.Start()
+	defer udpPeerList.Stop()
 
 	hostList := peerlist.Impl{
 		PersistentMetadata: skvStore,
-		PeerList: udptracker.UdpPeerList{
-			InfoHash: infoHash,
-			Trackers: trackers,
-		},
-		Cache: gcache.NewCache(),
+		PeerList:           udpPeerList,
+		Cache:              gcache.NewCache(),
 	}
 	_ = hostList
 
@@ -70,6 +84,11 @@ func main() {
 	if err := skvStore.Get("pieces", &ourPieces); err != nil {
 		ourPieces = domain.NewPieceList(torrentMeta.PiecesCount())
 		skvStore.Put("pieces", ourPieces)
+	}
+
+	if checkedPieces, hasChanges := f.CheckPieces(ourPieces); hasChanges {
+		fmt.Printf("has changes\n")
+		ourPieces = checkedPieces
 	}
 
 	ourPiecesFn := func() domain.PieceList {
@@ -106,10 +125,17 @@ func main() {
 
 	peerPool.Start()
 
-	newPeersChan, err := peerFactory.Serve(infoHash)
+	newPeersChan, listenPort, err := peerFactory.Serve(infoHash)
 	if err != nil {
 		panic(err)
 	}
+
+	portExposer := upnp.New(uint16(listenPort))
+	portExposer.Start()
+	defer portExposer.Stop()
+
+	<-quit
+	return
 
 	go func() {
 		for newPeer := range newPeersChan {

@@ -34,6 +34,8 @@ func Test_PieceList(t *testing.T) {
 	assert.False(t, p.ContainPiece(8))
 	p.SetPiece(8)
 	assert.True(t, p.ContainPiece(8))
+	p.ResetPiece(8)
+	assert.False(t, p.ContainPiece(8))
 
 	assert.False(t, p.ContainPiece(9))
 	p.SetPiece(9)
@@ -60,4 +62,28 @@ func Test_ContainPiece(t *testing.T) {
 	assert.False(t, p.ContainPiece(14))
 	assert.False(t, p.ContainPiece(15))
 
+}
+
+func Test_ResetPiece(t *testing.T) {
+	originalP := PieceList([]byte{0b10110100})
+	expP := PieceList([]byte{0b00110100})
+	var pBuf []byte
+	pBuf = append(pBuf, originalP...)
+	p := PieceList(pBuf)
+
+	p.ResetPiece(0)
+
+	assert.EqualValues(t, expP, p)
+}
+
+func Test_SetPiece(t *testing.T) {
+	originalP := PieceList([]byte{0b00110100})
+	expP := PieceList([]byte{0b10110100})
+	var pBuf []byte
+	pBuf = append(pBuf, originalP...)
+	p := PieceList(pBuf)
+
+	p.SetPiece(0)
+
+	assert.EqualValues(t, expP, p)
 }

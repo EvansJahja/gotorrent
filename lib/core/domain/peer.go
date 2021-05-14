@@ -33,3 +33,19 @@ func (p PieceList) SetPiece(pieceNo uint32) error {
 	}
 	return errors.New("out of bound")
 }
+
+func (p PieceList) ResetPiece(pieceNo uint32) error {
+	for i := range p {
+		p[i] = ^p[i]
+		for j := 0; j < 8; j++ {
+			key := uint32(i*8 + (7 - j))
+			if key == pieceNo {
+				p[i] |= 1 << j
+				p[i] = ^p[i]
+				return nil
+			}
+		}
+		p[i] = ^p[i]
+	}
+	return errors.New("out of bound")
+}

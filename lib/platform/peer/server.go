@@ -9,21 +9,25 @@ import (
 	"example.com/gotorrent/lib/core/domain"
 )
 
-func (p PeerFactory) Serve(infoHash []byte) (chan peer.Peer, error) {
-	newPeerChan := make(chan peer.Peer)
+func (p PeerFactory) Serve(infoHash []byte) (newPeerChan chan peer.Peer, listenPort int, err error) {
+	newPeerChan = make(chan peer.Peer)
 	startPort := 6881
 	endPort := 6889
 	for i := startPort; i < endPort; i++ {
-		listenPort := ":" + strconv.Itoa(i)
-		listen, err := net.Listen("tcp", listenPort)
+		listenPort = i
+		listenPortStr := ":" + strconv.Itoa(i)
+		var listen net.Listener
+		listen, err = net.Listen("tcp", listenPortStr)
 		if err == nil {
-			fmt.Printf("Listening on %s\n", listenPort)
+			fmt.Println(listen.Addr())
+			fmt.Printf("Listening on %s\n", listenPortStr)
 			go p.acceptLoop(listen, infoHash, newPeerChan)
-			return newPeerChan, nil
+			return
+			//return newPeerChan, listenPort, nil
 		}
 
 	}
-	panic("fail listening")
+	return
 }
 
 func (p PeerFactory) acceptLoop(l net.Listener, infoHash []byte, newPeerChan chan peer.Peer) {

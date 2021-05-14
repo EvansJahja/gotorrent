@@ -227,13 +227,19 @@ func (f Files) VerifyLocalPiece(pieceNo uint32) bool {
 	return true
 }
 
-func (f Files) CheckFiles() {
+func (f Files) CheckPieces(ourPieces domain.PieceList) (okPieces domain.PieceList, hasChanges bool) {
+	okPieces = ourPieces
+
 	for pieceNo := uint32(0); pieceNo < 13; pieceNo++ {
-		f.VerifyLocalPiece(pieceNo)
-
+		if ourPieces.ContainPiece(pieceNo) {
+			if ok := f.VerifyLocalPiece(pieceNo); !ok {
+				okPieces.ResetPiece(pieceNo)
+				hasChanges = true
+			}
+		}
 	}
+	return
 
-	os.Exit(1)
 	/*
 		// Todo
 
