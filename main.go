@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
@@ -8,17 +9,18 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"example.com/gotorrent/lib/core/bucketdownload"
 	"example.com/gotorrent/lib/core/service/peerlist"
 	"example.com/gotorrent/lib/core/service/peerpool"
 	"example.com/gotorrent/lib/files"
+	"example.com/gotorrent/lib/logger"
 
 	"example.com/gotorrent/lib/core/domain"
 	"example.com/gotorrent/lib/platform/gcache"
 	"example.com/gotorrent/lib/platform/peer"
-	"example.com/gotorrent/lib/platform/realclock"
 	"example.com/gotorrent/lib/platform/udptracker"
 	"example.com/gotorrent/lib/platform/upnp"
 
@@ -27,15 +29,18 @@ import (
 
 func main() {
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt)
-	fmt.Println("Hi")
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+	l := logger.Named("main")
+	l.Info("Hi")
+
 	defer func() {
-		fmt.Println("Bye")
+		l.Info("Bye")
 	}()
 
 	location := "/home/evans/torrent/test/"
 	magnetStr := "***REMOVED***"
 
+	l.Info("download location: " + location)
 	u, _ := url.Parse(magnetStr)
 	magnetURI := domain.Magnet{Url: u}
 	infoHash := magnetURI.InfoHash()
@@ -53,8 +58,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("Received %x\n", metadata.InfoHash())
-	fmt.Printf("Expected %x\n", infoHash)
+	l.Sugar().Debugw("check our cached infohash", "expected", hex.EncodeToString(infoHash), "actual", hex.EncodeToString(metadata.InfoHash()))
 
 	torrentMeta := metadata.MustParse()
 	f := files.Files{Torrent: torrentMeta, BasePath: location}
@@ -64,20 +68,21 @@ func main() {
 
 	////////////////////////////////
 
-	udpPeerList := udptracker.UdpPeerList{
+	udpPeerList := &udptracker.UdpPeerList{
 		InfoHash: infoHash,
 		Trackers: trackers,
-		Clock:    realclock.RealClock{},
 	}
 	udpPeerList.Start()
-	defer udpPeerList.Stop()
 
 	hostList := peerlist.Impl{
 		PersistentMetadata: skvStore,
 		PeerList:           udpPeerList,
 		Cache:              gcache.NewCache(),
 	}
-	_ = hostList
+	hosts, _ := hostList.GetHosts()
+	l.Sugar().Debugw("host list", "hosts", hosts)
+	<-quit
+	return
 
 	var ourPieces domain.PieceList
 
