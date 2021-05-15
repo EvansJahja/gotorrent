@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 	"example.com/gotorrent/lib/core/service/peerpool"
 	"example.com/gotorrent/lib/files"
 	"example.com/gotorrent/lib/logger"
+	"go.uber.org/zap"
 
 	"example.com/gotorrent/lib/core/domain"
 	"example.com/gotorrent/lib/platform/gcache"
@@ -154,50 +154,54 @@ func main() {
 		}
 	}()
 
-	fmt.Printf("Start asking for pieces\n")
+	l.Info("Start asking for pieces")
 
-	var wg sync.WaitGroup
-	var pieceNo uint32
-	conPieces := make(chan struct{}, 1)
-	for pieceNo = 0; pieceNo <= 20; pieceNo++ {
+	for {
+		pieceNo, err := peerPool.FindNextPiece(ourPieces, f.Torrent.PiecesCount())
+		if err != nil {
+			// No more piece
+			// Todo: check error
+			break
+		}
 		if ourPieces.ContainPiece(pieceNo) {
+			panic("should not happen")
 			continue
 		}
-		conPieces <- struct{}{}
-		wg.Add(1)
-		go func(pieceNo uint32) {
-		RetryPiece:
-			fmt.Printf("Start piece %d\n", pieceNo)
+		// TODO  tell interested and not interested based on our pieceNo
+	RetryPiece:
 
-			fileWriteSeekerGen :=
-				func() io.WriteSeeker {
-					return f.WriteSeeker(int(pieceNo))
-				}
+		l.Sugar().Infof("Start downloading piece %d", pieceNo)
 
-			poolReaderGen := func() io.ReadSeekCloser {
-				return peerPool.NewPeerPoolReader(pieceNo, f.Torrent.PieceLength, f.Torrent.PiecesCount(), f.Torrent.TorrentLength())
+		fileWriteSeekerGen :=
+			func() io.WriteSeeker {
+				return f.WriteSeeker(int(pieceNo))
 			}
 
-			bd := bucketdownload.New(poolReaderGen, fileWriteSeekerGen, 1<<14, f.Torrent.PieceLength, 5)
-			bd.Start()
-			wg.Done()
+		poolReaderGen := func() io.ReadSeekCloser {
+			return peerPool.NewPeerPoolReader(pieceNo, f.Torrent.PieceLength, f.Torrent.PiecesCount(), f.Torrent.TorrentLength())
+		}
 
-			if ok := f.VerifyLocalPiece(pieceNo); !ok {
-				fmt.Printf("piece %d corrupt, retrying...\n", pieceNo)
-				time.Sleep(5 * time.Second)
-				goto RetryPiece
+		bd := bucketdownload.New(poolReaderGen, fileWriteSeekerGen, 1<<14, f.Torrent.PieceLength, 5)
+		bd.Start()
 
-			}
-			ourPieces.SetPiece(pieceNo)
-			if err := skvStore.Put("pieces", ourPieces); err != nil {
-				fmt.Printf("error store pieces %s\n", err.Error())
-			}
+		if ok := f.VerifyLocalPiece(pieceNo); !ok {
+			l.Sugar().Errorf("piece %d corrupt, retrying...", pieceNo)
+			time.Sleep(5 * time.Second)
+			goto RetryPiece
 
-			<-conPieces
-			fmt.Printf("Done piece %d\n", pieceNo)
-		}(pieceNo)
+		}
+		ourPieces.SetPiece(pieceNo)
+		if err := skvStore.Put("pieces", ourPieces); err != nil {
+			l.Error("error store piece", zap.Error(err))
+		}
+
+		l.Sugar().Infof("Done download and verify piece %d", pieceNo)
+
+		// TODO
+		// 1. Update our bitfields
+		// 2. Send "Have" to peers
+
 	}
-	wg.Wait()
 
 	<-quit
 	return

@@ -1,14 +1,17 @@
 package peerpool
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"sync"
 	"time"
 
 	"example.com/gotorrent/lib/core/adapter/peer"
 	"example.com/gotorrent/lib/core/domain"
 	"example.com/gotorrent/lib/logger"
+	"go.uber.org/zap"
 )
 
 var l_peerpool = logger.Named("peerpool")
@@ -19,6 +22,7 @@ type PeerPool interface {
 	NewPeerPoolReader(pieceNo uint32, pieceLength int, pieceCount int, torrentLength int) io.ReadSeekCloser
 	Start()
 
+	FindNextPiece(have domain.PieceList, pieceCount int) (uint32, error)
 	PieceRequests() <-chan peer.PieceRequest
 }
 type Factory struct {
@@ -116,6 +120,7 @@ func (impl *peerPoolImpl) run() {
 }
 
 func (impl *peerPoolImpl) runPeer(p peer.Peer) {
+	l_peerpool.Sugar().Debugw("add peer to pool", "peer", p.GetPeerID())
 	impl.setupEventHandler(p)
 	if p.GetState().Connected {
 		// Fast track
@@ -160,4 +165,71 @@ func (impl *peerPoolImpl) setupEventHandler(p peer.Peer) {
 		panic("chan Closed")
 
 	}()
+}
+func (impl *peerPoolImpl) FindNextPiece(havePiece domain.PieceList, pieceCount int) (uint32, error) {
+
+	wantPieces := make([]uint32, 0, pieceCount)
+
+	for i := uint32(0); i < uint32(pieceCount); i++ {
+		if !havePiece.ContainPiece(i) {
+			wantPieces = append(wantPieces, i)
+		}
+	}
+	if len(wantPieces) == 0 {
+		return 0, errors.New("no want pieces")
+	}
+
+	l_peerpool.Debug("finding next piece")
+
+Retry:
+
+	for len(impl.connectedPeers) == 0 {
+		l_peerpool.Debug("waiting for any peer to connect")
+		time.Sleep(1 * time.Second)
+	}
+	l_peerpool.Debug("got peers", zap.Int("connectedPeers", len(impl.connectedPeers)))
+
+	maxV := 0
+	minV := 0
+	pieceCounts := make(map[uint32]int)
+	for _, p := range impl.connectedPeers {
+		for _, i := range wantPieces {
+			if p.TheirPieces().ContainPiece(i) {
+				pieceCounts[i] += 1
+				if maxV < pieceCounts[i] {
+					maxV = pieceCounts[i]
+				}
+				if minV > pieceCounts[i] || minV == 0 {
+					minV = pieceCounts[i]
+				}
+			}
+		}
+	}
+	if len(pieceCounts) == 0 {
+		l_peerpool.Debug("piece count is 0, retrying")
+		time.Sleep(5 * time.Second)
+		goto Retry
+
+	}
+	// minV should NEVER be 0, so this is a precaution
+
+	peerHasPieces := make([]uint32, 0, pieceCount)
+	rarePieces := make([]uint32, 0, pieceCount)
+	for k, v := range pieceCounts {
+		if v == minV {
+			rarePieces = append(rarePieces, k)
+		}
+		peerHasPieces = append(peerHasPieces, k)
+	}
+
+	if maxV == 1 || minV == 0 {
+		pieceIdx := peerHasPieces[rand.Int()%len(peerHasPieces)]
+		l_peerpool.Debug("choosing next piece randomly", zap.Uint32("pieceIdx", pieceIdx))
+		return pieceIdx, nil
+	}
+
+	pieceIdx := rarePieces[rand.Int()%len(rarePieces)]
+	l_peerpool.Debug("choosing next piece with rare pieces", zap.Uint32("pieceIdx", pieceIdx), zap.Uint32s("rare pieces", rarePieces), zap.Int("minV", minV))
+	return pieceIdx, nil
+
 }
