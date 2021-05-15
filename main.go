@@ -15,6 +15,7 @@ import (
 	"example.com/gotorrent/lib/core/service/peerpool"
 	"example.com/gotorrent/lib/files"
 	"example.com/gotorrent/lib/logger"
+	"example.com/gotorrent/lib/transport/echohttp"
 	"go.uber.org/zap"
 
 	"example.com/gotorrent/lib/core/domain"
@@ -27,6 +28,7 @@ import (
 )
 
 func main() {
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	l := logger.Named("main")
@@ -153,6 +155,11 @@ func main() {
 			req.Response <- buf
 		}
 	}()
+
+	httpServe := echohttp.HTTPServe{
+		PeerPool: peerPool,
+	}
+	httpServe.Start()
 
 	l.Info("Start asking for pieces")
 

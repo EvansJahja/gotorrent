@@ -49,3 +49,7 @@ func (p PieceList) ResetPiece(pieceNo uint32) error {
 	}
 	return errors.New("out of bound")
 }
+
+func (p PieceList) ApproxPieceCount() uint32 {
+	return uint32(len(p) * 8)
+}

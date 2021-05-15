@@ -24,6 +24,7 @@ type PeerPool interface {
 
 	FindNextPiece(have domain.PieceList, pieceCount int) (uint32, error)
 	PieceRequests() <-chan peer.PieceRequest
+	Peers(filters ...PeerFilter) []peer.Peer
 
 	// Call this when piece is done, to send Have to peers
 	TellPieceCompleted(pieceNo uint32)
@@ -275,4 +276,8 @@ func (impl *peerPoolImpl) GetNetworkStats() (downloadRate, uploadRate float32, d
 
 	return
 
+}
+
+func (impl *peerPoolImpl) Peers(filters ...PeerFilter) []peer.Peer {
+	return FilterPool(impl.connectedPeers, filters...)
 }
