@@ -33,7 +33,7 @@ Retry:
 	peerIdx := rand.Int() % len(filteredPeers)
 	targetPeer := filteredPeers[peerIdx]
 
-	l_poolreader.Sugar().Infof("Choose peer %s upload rate: %f kBps, download rate: %f kBps", targetPeer.GetPeerID(), targetPeer.GetUploadRate(), targetPeer.GetDownloadRate())
+	l_poolreader.Sugar().Infof("Choose peer %s upload rate: %f kBps, download rate: %f kBps", targetPeer.GetID(), targetPeer.GetUploadRate(), targetPeer.GetDownloadRate())
 	//fmt.Printf("Choosing %s out of %d peers\n", targetPeer.GetPeerID(), len(filteredPeers))
 
 	//fmt.Println("Creating peer reader")

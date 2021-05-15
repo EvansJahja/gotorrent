@@ -24,7 +24,9 @@ type Peer interface {
 	Hostname() string
 
 	RequestPiece(pieceId uint32, begin uint32, length uint32) <-chan []byte
-	GetPeerID() []byte
+
+	// Not actually peer ID, but hashed version (easier to log and carry)
+	GetID() string
 
 	Choke()
 	Unchoke()

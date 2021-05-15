@@ -1,8 +1,6 @@
 package echohttp
 
 import (
-	"crypto/sha256"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"strconv"
@@ -38,6 +36,16 @@ func (h HTTPServe) peers(c echo.Context) error {
 	v := c.QueryParams()
 	for _, f := range v["filter"] {
 		switch f {
+		case "download":
+			filterList = append(filterList, peerpool.FilterHasDownload)
+		case "upload":
+			filterList = append(filterList, peerpool.FilterHasUpload)
+		case "downloading":
+			filterList = append(filterList, peerpool.FilterIsDownloading)
+		case "uploading":
+			filterList = append(filterList, peerpool.FilterIsUploading)
+		case "choked":
+			filterList = append(filterList, peerpool.FilterChoking)
 		case "unchoked":
 			filterList = append(filterList, peerpool.FilterNotChoking)
 		}
@@ -52,15 +60,23 @@ func (h HTTPServe) peers(c echo.Context) error {
 	peers := h.PeerPool.Peers(append(filterList, peerpool.FilterConnected)...)
 
 	type peerStatType struct {
-		Hostname     string
-		HashedPeerID string
+		Hostname      string
+		HashedPeerID  string
+		DownloadRate  string
+		UploadRate    string
+		TotalDownload string
+		TotalUpload   string
 	}
 	peerStats := make([]peerStatType, 0, len(peers))
 
 	for _, peerObj := range peers {
 		s := peerStatType{
-			Hostname:     peerObj.Hostname(),
-			HashedPeerID: hashed(peerObj.GetPeerID()),
+			Hostname:      peerObj.Hostname(),
+			HashedPeerID:  peerObj.GetID(),
+			DownloadRate:  fmt.Sprintf("%f kBps", peerObj.GetDownloadRate()),
+			UploadRate:    fmt.Sprintf("%f kBps", peerObj.GetUploadRate()),
+			TotalDownload: fmt.Sprintf("%f kB", float64(peerObj.GetDownloadBytes())/1000),
+			TotalUpload:   fmt.Sprintf("%f kB", float64(peerObj.GetUploadBytes())/1000),
 		}
 		peerStats = append(peerStats, s)
 	}
@@ -109,17 +125,9 @@ func (h HTTPServe) findPeerByHash(hashID string) (peer.Peer, error) {
 
 	peers := h.PeerPool.Peers(peerpool.FilterConnected)
 	for _, peerObj := range peers {
-		if hashed(peerObj.GetPeerID()) == hashID {
+		if peerObj.GetID() == hashID {
 			return peerObj, nil
 		}
 	}
 	return nil, errors.New("not found")
-}
-
-func hashed(input []byte) string {
-	hasher := sha256.New()
-	hasher.Write(input)
-	hash := hasher.Sum(nil)
-	s := base64.StdEncoding.EncodeToString(hash[:9])
-	return s
 }

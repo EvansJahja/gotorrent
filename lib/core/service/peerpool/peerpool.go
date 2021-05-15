@@ -126,7 +126,7 @@ func (impl *peerPoolImpl) run() {
 }
 
 func (impl *peerPoolImpl) runPeer(p peer.Peer) {
-	l_peerpool.Sugar().Debugw("add peer to pool", "peer", p.GetPeerID())
+	l_peerpool.Sugar().Debugw("add peer to pool", "peer", p.GetID())
 	impl.setupEventHandler(p)
 	if p.GetState().Connected {
 		// Fast track
@@ -138,7 +138,6 @@ RetryConnect:
 	err := p.Connect()
 
 	if err == nil {
-		fmt.Printf("W Connected to %s\n", string(p.GetPeerID()))
 		impl.connectedPeers = append(impl.connectedPeers, p)
 	} else {
 		time.Sleep(5 * time.Second)

@@ -2,6 +2,11 @@ package peerpool
 
 import "example.com/gotorrent/lib/core/adapter/peer"
 
+func FilterChoking(peers []peer.Peer) []peer.Peer {
+	return filter(peers, func(p peer.Peer) bool {
+		return p.GetState().WeAreChocked
+	})
+}
 func FilterNotChoking(peers []peer.Peer) []peer.Peer {
 	return filter(peers, func(p peer.Peer) bool {
 		return !p.GetState().WeAreChocked
@@ -12,7 +17,28 @@ func FilterConnected(peers []peer.Peer) []peer.Peer {
 	return filter(peers, func(p peer.Peer) bool {
 		return p.GetState().Connected
 	})
+}
 
+func FilterHasDownload(peers []peer.Peer) []peer.Peer {
+	return filter(peers, func(p peer.Peer) bool {
+		return p.GetDownloadBytes() > 0
+	})
+}
+func FilterIsDownloading(peers []peer.Peer) []peer.Peer {
+	return filter(peers, func(p peer.Peer) bool {
+		return p.GetDownloadRate() > 0
+	})
+}
+func FilterHasUpload(peers []peer.Peer) []peer.Peer {
+	return filter(peers, func(p peer.Peer) bool {
+		return p.GetUploadBytes() > 0
+	})
+}
+
+func FilterIsUploading(peers []peer.Peer) []peer.Peer {
+	return filter(peers, func(p peer.Peer) bool {
+		return p.GetUploadRate() > 0
+	})
 }
 
 func FilterHasPiece(pieceNo uint32) func(peers []peer.Peer) []peer.Peer {

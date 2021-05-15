@@ -4,6 +4,8 @@ package peer
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base32"
 	"encoding/binary"
 	"errors"
 	"net"
@@ -128,9 +130,12 @@ func (impl *peerImpl) GetState() peer.State {
 
 }
 
-func (impl *peerImpl) GetPeerID() []byte {
-	//<-impl.peerHandshakeRespChan
-	return impl.theirPeerID
+func (impl *peerImpl) GetID() string {
+	hasher := sha256.New()
+	hasher.Write(impl.theirPeerID)
+	hash := hasher.Sum(nil)
+	s := base32.StdEncoding.EncodeToString(hash[:5])
+	return s
 }
 
 func (impl *peerImpl) Connect() error {
@@ -291,7 +296,7 @@ func (impl *peerImpl) handleMessage(msg []byte) {
 	msgType := MsgType(msg[0])
 	msgVal := msg[1:]
 
-	logger.Ctx(l_peer, impl.ctx).Debug("receive message", zap.String("type", msgType.String()))
+	logger.Ctx(l_peer, impl.ctx).Debug("receive message", zap.String("type", msgType.String()), zap.String("ID", impl.GetID()))
 
 	switch msgType {
 	case MsgChoke:
@@ -347,7 +352,7 @@ func (impl *peerImpl) handleRequest(msg []byte) {
 		return
 	}
 
-	logger.Ctx(l_peer, impl.ctx).Sugar().Debugw("handleRequest", "pieceId", pieceId, "begin", begin, "length", length)
+	logger.Ctx(l_peer, impl.ctx).Sugar().Debugw("handleRequest", "pieceId", pieceId, "begin", begin, "length", length, "ID", impl.GetID())
 	respCh := make(chan []byte)
 	req := peer.PieceRequest{
 		PieceNo:  pieceId,
@@ -364,18 +369,19 @@ func (impl *peerImpl) handleRequest(msg []byte) {
 }
 func (impl *peerImpl) handlePiece(msg []byte) {
 
-	var index uint32
+	var pieceId uint32
 	var begin uint32
 	var piece []byte
 
-	index = binary.BigEndian.Uint32(msg[0:4])
+	pieceId = binary.BigEndian.Uint32(msg[0:4])
 	begin = binary.BigEndian.Uint32(msg[4:8])
 	piece = msg[8:]
 
+	logger.Ctx(l_peer, impl.ctx).Sugar().Debugw("handlePiece", "pieceId", pieceId, "begin", begin, "length", len(piece), "ID", impl.GetID())
 	atomic.AddUint32(&impl.downloaded, uint32(len(piece)))
 
 	key := keyType{
-		pieceId: index,
+		pieceId: pieceId,
 		begin:   begin,
 		length:  uint32(len(piece)),
 	}
