@@ -9,7 +9,13 @@ import (
 	"example.com/gotorrent/lib/core/adapter/peerlist"
 	"example.com/gotorrent/lib/core/adapter/persistentmetadata"
 	"example.com/gotorrent/lib/core/domain"
+	"example.com/gotorrent/lib/logger"
+	"go.uber.org/zap"
 )
+
+const minHostsToCache = 10
+
+var l = logger.Log.Named("peerlist")
 
 type Service interface {
 	GetHosts() ([]domain.Host, error)
@@ -65,11 +71,20 @@ func (impl Impl) GetHosts() ([]domain.Host, error) {
 
 	hosts, err = impl.getHostsFromCache()
 	if err != nil {
-		hosts, err = impl.getHostsFromAnnounce()
-		if err != nil {
-			return nil, err
+		for i := 0; i < 5; i++ {
+			l.Info("getting host from announce")
+			hosts, err = impl.getHostsFromAnnounce()
+			if err == nil || len(hosts) == 0 {
+				l.Warn("fail getting host from announce, retrying", zap.Int("retries", i))
+				break
+			}
+			time.Sleep(3 * time.Second)
 		}
-		_ = impl.setHostsToCache(hosts)
+		l.Info("got hosts from announce", zap.Int("count", len(hosts)))
+
+		if len(hosts) >= minHostsToCache {
+			_ = impl.setHostsToCache(hosts)
+		}
 	}
 	return hosts, nil
 

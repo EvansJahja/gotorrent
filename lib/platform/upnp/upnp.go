@@ -11,15 +11,16 @@ import (
 
 func New(localPort uint16) portexposer.PortExposer {
 	return &impl{
-		localPort: localPort,
-		extPort:   6083, // starting extPort
+		localPort:    localPort,
+		startExtPort: 6083, // starting extPort
 	}
 }
 
 type impl struct {
-	localPort uint16
-	extPort   uint16
-	client    *internetgateway2.WANIPConnection1
+	localPort    uint16
+	startExtPort uint16
+	extPort      uint16
+	client       *internetgateway2.WANIPConnection1
 }
 
 func (i *impl) Start() {
@@ -44,7 +45,7 @@ func (i *impl) Start() {
 
 Retry:
 	internalPort, internalClient, enabled, portMappingDesc, leaseDuration, err :=
-		client.GetSpecificPortMappingEntry("", i.extPort, "TCP")
+		client.GetSpecificPortMappingEntry("", i.startExtPort, "TCP")
 	_ = internalClient
 	_ = enabled
 	_ = portMappingDesc
@@ -53,28 +54,33 @@ Retry:
 	if err == nil {
 		internalClientIP := net.ParseIP(internalClient)
 		if !internalClientIP.Equal(myIP) {
-			i.extPort++
+			i.startExtPort++
 			goto Retry
 		}
 		if internalPort != i.localPort {
-			i.extPort++
+			i.startExtPort++
 			goto Retry
 		}
 	}
 
-	if err := client.AddPortMapping("", i.extPort, "TCP", i.localPort, myIP.String(), false, "port desc", 0); err != nil {
+	if err := client.AddPortMapping("", i.startExtPort, "TCP", i.localPort, myIP.String(), false, "port desc", 0); err != nil {
 		fmt.Println(err.Error())
 	}
 	i.client = client
+	i.extPort = i.startExtPort
 
-	fmt.Printf("UPnP success: %s exposing %d as %d\n", myIP.String(), i.localPort, i.extPort)
+	fmt.Printf("UPnP success: %s exposing %d as %d\n", myIP.String(), i.localPort, i.startExtPort)
+}
+
+func (i *impl) Port() uint16 {
+	return i.extPort
 }
 
 func (i *impl) Stop() {
 	if i.client == nil {
 		return
 	}
-	i.client.DeletePortMapping("", i.extPort, "TCP")
+	i.client.DeletePortMapping("", i.startExtPort, "TCP")
 }
 
 func findMyLocalIP(igdHostname string) (net.IP, error) {

@@ -22,6 +22,7 @@ type tracker struct {
 	connID      connectionID
 	n           int // for retrying delay. See BEP 0015
 	isConnected bool
+	trackerInfo TrackerInfo
 }
 
 type connectionID struct {
@@ -47,6 +48,10 @@ func newConnectionID(id uint64) connectionID {
 	}
 }
 
+func (t *tracker) updateInfo(newInfo TrackerInfo) {
+	t.trackerInfo = newInfo
+}
+
 func (t *tracker) run() {
 	ctx := logger.NewContextid(context.Background())
 	l := logger.Ctx(l_tracker, ctx)
@@ -54,7 +59,7 @@ func (t *tracker) run() {
 		// connection ID lives for 1 minute
 
 		if t.connID.expired() {
-			l.Sugar().Infow("conn ID expired", "connID", t.connID.id)
+			l.Sugar().Debugw("conn ID expired", "connID", t.connID.id)
 			t.isConnected = false
 		} else {
 			if t.isConnected {
@@ -75,7 +80,7 @@ func (t *tracker) run() {
 			t.n = 0
 			t.connID = newConnectionID(connResp.connID)
 			t.isConnected = true
-			l.Sugar().Infow("connected", "connID", t.connID.id)
+			l.Sugar().Infow("connected to tracker", "connID", t.connID.id, "url", t.trackerUrl)
 		}
 
 	Connected:
@@ -91,7 +96,7 @@ func (t *tracker) run() {
 		announceInterval := time.Duration(announceResp.Interval) * time.Second
 
 		for _, h := range announceResp.Hosts {
-			l.Sugar().Infow("got host from announce", "host", h)
+			l.Sugar().Debugw("got host from announce", "host", h)
 			t.newHostChan <- h
 		}
 
@@ -172,48 +177,48 @@ func newConnectResponse(b []byte) connectResponse {
 }
 
 type announceRequest struct {
-	connId        uint64
-	action        uint32
-	transactionId uint32
-	infoHash      []byte
-	peerId        string
-	downloaded    uint64
-	left          uint64
-	uploaded      uint64
-	event         uint32
-	ip            uint32
-	key           uint32
-	num_want      uint32
-	port          uint16
+	ConnID        uint64
+	Action        uint32
+	TransactionID uint32
+	InfoHash      []byte
+	PeerID        string
+	Downloaded    uint64
+	Left          uint64
+	Uploaded      uint64
+	Event         uint32
+	IP            uint32
+	Key           uint32
+	NumWant       int32
+	Port          uint16
 }
 
 func (u announceRequest) getBytes() []byte {
 	b := make([]byte, 98)
-	binary.BigEndian.PutUint64(b[0:], u.connId)
-	binary.BigEndian.PutUint32(b[8:], u.action)
-	binary.BigEndian.PutUint32(b[12:], u.transactionId)
+	binary.BigEndian.PutUint64(b[0:], u.ConnID)
+	binary.BigEndian.PutUint32(b[8:], u.Action)
+	binary.BigEndian.PutUint32(b[12:], u.TransactionID)
 
-	copy(b[16:16+20], []byte(u.infoHash))
-	copy(b[36:36+20], []byte(u.peerId))
+	copy(b[16:16+20], []byte(u.InfoHash))
+	copy(b[36:36+20], []byte(u.PeerID))
 
-	binary.BigEndian.PutUint64(b[56:], u.downloaded)
-	binary.BigEndian.PutUint64(b[64:], u.left)
-	binary.BigEndian.PutUint64(b[72:], u.uploaded)
-	binary.BigEndian.PutUint32(b[80:], u.event)
-	binary.BigEndian.PutUint32(b[84:], u.ip)
-	binary.BigEndian.PutUint32(b[88:], u.key)
-	binary.BigEndian.PutUint32(b[92:], u.num_want)
-	binary.BigEndian.PutUint16(b[96:], u.port)
+	binary.BigEndian.PutUint64(b[56:], u.Downloaded)
+	binary.BigEndian.PutUint64(b[64:], u.Left)
+	binary.BigEndian.PutUint64(b[72:], u.Uploaded)
+	binary.BigEndian.PutUint32(b[80:], u.Event)
+	binary.BigEndian.PutUint32(b[84:], u.IP)
+	binary.BigEndian.PutUint32(b[88:], u.Key)
+	binary.BigEndian.PutUint32(b[92:], uint32(u.NumWant))
+	binary.BigEndian.PutUint16(b[96:], u.Port)
 	return b
 }
 
 func newAnnounceRequest() announceRequest {
 	var u announceRequest
-	u.action = 0x1
-	u.ip = 0
+	u.Action = 0x1
+	u.IP = 0
 	num_want := -1
-	u.num_want = uint32(num_want)
-	u.event = 0
+	u.NumWant = int32(num_want)
+	u.Event = 0
 	return u
 }
 
@@ -268,7 +273,7 @@ func (impl *tracker) connect(ctx context.Context, u *url.URL, readTimeout time.D
 	connReq := newConnectRequest()
 	connReq.transactionID = newTransactionID()
 
-	l.Infow("dialing", "host", u.Host)
+	l.Debugw("dialing", "host", u.Host)
 	c, err := net.Dial("udp", u.Host)
 	if err != nil {
 		l.Errorw("error dial", "host", u.Host, "err", err.Error())
@@ -277,7 +282,7 @@ func (impl *tracker) connect(ctx context.Context, u *url.URL, readTimeout time.D
 	defer c.Close()
 
 	if readTimeout != 0 {
-		l.Infow("set timeout", "readTimeout", readTimeout)
+		l.Debugw("set timeout", "readTimeout", readTimeout)
 		c.SetReadDeadline(time.Now().Add(readTimeout))
 	}
 
@@ -289,7 +294,7 @@ func (impl *tracker) connect(ctx context.Context, u *url.URL, readTimeout time.D
 
 	count, err := c.Read(buffRead)
 	if err != nil {
-		l.Infow("error reading", "err", err.Error())
+		l.Warnw("error reading", "err", err.Error())
 		return connectResponse{}, err
 	}
 	buffRead = buffRead[:count]
@@ -304,7 +309,7 @@ func (impl *tracker) connect(ctx context.Context, u *url.URL, readTimeout time.D
 
 func (impl *tracker) announce(ctx context.Context, u *url.URL, readTimeout time.Duration) (AnnounceResponse, error) {
 	l := logger.Ctx(l_tracker, ctx).Sugar()
-	l.Infow("announce on", "host", u.Host)
+	l.Debugw("announce on", "host", u.Host)
 	c, err := net.Dial("udp", u.Host)
 	if err != nil {
 		l.Error("error announce", "err", err.Error())
@@ -313,16 +318,22 @@ func (impl *tracker) announce(ctx context.Context, u *url.URL, readTimeout time.
 	defer c.Close()
 
 	if readTimeout != 0 {
-		l.Info("set announce deadline", "readTimeout", readTimeout)
+		l.Debugw("set announce deadline", "readTimeout", readTimeout)
 		c.SetReadDeadline(time.Now().Add(readTimeout))
 	}
 
 	announceReq := newAnnounceRequest()
 
-	announceReq.connId = impl.connID.id
-	announceReq.transactionId = newTransactionID()
-	announceReq.infoHash = impl.infoHash
-	announceReq.peerId = "-GO0000-0257f4bc7fa1"
+	announceReq.ConnID = impl.connID.id
+	announceReq.TransactionID = newTransactionID()
+	announceReq.InfoHash = impl.infoHash
+	announceReq.PeerID = "-GO0000-0257f4bc7fa1"
+	announceReq.Downloaded = uint64(impl.trackerInfo.Downloaded)
+	announceReq.Uploaded = uint64(impl.trackerInfo.Uploaded)
+	announceReq.Left = uint64(impl.trackerInfo.Left)
+	announceReq.Port = impl.trackerInfo.Port
+
+	l.Debugw("send announce", "announce", announceReq)
 
 	c.Write(announceReq.getBytes())
 

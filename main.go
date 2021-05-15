@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"net"
 	"net/url"
 	"os"
 	"os/signal"
@@ -45,55 +44,37 @@ func main() {
 	magnetURI := domain.Magnet{Url: u}
 	infoHash := magnetURI.InfoHash()
 	trackers := magnetURI.Trackers()
-	_ = trackers
 
 	skvStore, err := skv.Open(location + ".skv.db")
-	if err != nil {
-		panic(err)
+	{
+		if err != nil {
+			panic(err)
+		}
+		defer skvStore.Close()
 	}
-	defer skvStore.Close()
 
 	var metadata domain.Metadata
-	err = skvStore.Get("metadata", &metadata)
-	if err != nil {
-		panic(err)
+	{
+		err = skvStore.Get("metadata", &metadata)
+		if err != nil {
+			panic(err)
+		}
+		l.Sugar().Debugw("check our cached infohash", "expected", hex.EncodeToString(infoHash), "actual", hex.EncodeToString(metadata.InfoHash()))
 	}
-	l.Sugar().Debugw("check our cached infohash", "expected", hex.EncodeToString(infoHash), "actual", hex.EncodeToString(metadata.InfoHash()))
 
 	torrentMeta := metadata.MustParse()
+
 	f := files.Files{Torrent: torrentMeta, BasePath: location}
-	// WARNING
-	// f.CreateFiles()
-	// WARNING
-
-	////////////////////////////////
-
-	udpPeerList := &udptracker.UdpPeerList{
-		InfoHash: infoHash,
-		Trackers: trackers,
-	}
-	udpPeerList.Start()
-
-	hostList := peerlist.Impl{
-		PersistentMetadata: skvStore,
-		PeerList:           udpPeerList,
-		Cache:              gcache.NewCache(),
-	}
-	hosts, _ := hostList.GetHosts()
-	l.Sugar().Debugw("host list", "hosts", hosts)
-	<-quit
-	return
-
 	var ourPieces domain.PieceList
-
-	if err := skvStore.Get("pieces", &ourPieces); err != nil {
-		ourPieces = domain.NewPieceList(torrentMeta.PiecesCount())
-		skvStore.Put("pieces", ourPieces)
-	}
-
-	if checkedPieces, hasChanges := f.CheckPieces(ourPieces); hasChanges {
-		fmt.Printf("has changes\n")
-		ourPieces = checkedPieces
+	{
+		if err := skvStore.Get("pieces", &ourPieces); err != nil {
+			ourPieces = domain.NewPieceList(torrentMeta.PiecesCount())
+			skvStore.Put("pieces", ourPieces)
+		}
+		if checkedPieces, hasChanges := f.CheckPieces(ourPieces); hasChanges {
+			fmt.Printf("has changes\n")
+			ourPieces = checkedPieces
+		}
 	}
 
 	ourPiecesFn := func() domain.PieceList {
@@ -104,6 +85,33 @@ func main() {
 		InfoHash:       infoHash,
 		OurPieceListFn: ourPiecesFn,
 	}
+	newPeersChan, listenPort, err := peerFactory.Serve(infoHash)
+	if err != nil {
+		panic(err)
+	}
+	portExposer := upnp.New(uint16(listenPort))
+	portExposer.Start()
+	defer portExposer.Stop()
+
+	trackerInfo := udptracker.TrackerInfo{
+		Uploaded:   0,
+		Downloaded: 0,
+		Left:       0,
+		Port:       portExposer.Port(),
+	}
+
+	udpPeerList := &udptracker.UdpPeerList{
+		InfoHash: infoHash,
+		Trackers: trackers,
+	}
+	udpPeerList.SetInfo(trackerInfo)
+	udpPeerList.Start()
+
+	hostList := peerlist.Impl{
+		PersistentMetadata: skvStore,
+		PeerList:           udpPeerList,
+		Cache:              gcache.NewCache(),
+	}
 
 	peerPool := peerpool.Factory{
 		PeerFactory: peer.PeerFactory{
@@ -112,41 +120,31 @@ func main() {
 		},
 	}.New()
 
-	/*
-		hosts, err := hostList.GetHosts()
-		if err != nil {
-			fmt.Println(err.Error())
-			return
-
-		}
-	*/
-	//peerPool.AddHosts(hosts...)
-
-	local := domain.Host{
-		IP:   net.IPv4(127, 0, 0, 1),
-		Port: 6882,
-	}
-	peerPool.AddHosts(local)
-
-	peerPool.Start()
-
-	newPeersChan, listenPort, err := peerFactory.Serve(infoHash)
-	if err != nil {
-		panic(err)
-	}
-
-	portExposer := upnp.New(uint16(listenPort))
-	portExposer.Start()
-	defer portExposer.Stop()
-
-	<-quit
-	return
-
 	go func() {
 		for newPeer := range newPeersChan {
 			peerPool.AddPeer(newPeer)
 		}
 	}()
+
+	hosts, err := hostList.GetHosts()
+
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+	l.Sugar().Debugw("host list", "hosts", hosts)
+
+	peerPool.AddHosts(hosts...)
+
+	/*
+		local := domain.Host{
+			IP:   net.IPv4(127, 0, 0, 1),
+			Port: 6882,
+		}
+		peerPool.AddHosts(local)
+	*/
+
+	peerPool.Start()
 
 	go func() {
 		for req := range peerPool.PieceRequests() {
@@ -201,7 +199,7 @@ func main() {
 	}
 	wg.Wait()
 
-	fmt.Printf("Closing app soon \n")
-	time.Sleep(3 * time.Second)
+	<-quit
+	return
 
 }
