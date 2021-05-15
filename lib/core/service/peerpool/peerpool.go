@@ -8,7 +8,10 @@ import (
 
 	"example.com/gotorrent/lib/core/adapter/peer"
 	"example.com/gotorrent/lib/core/domain"
+	"example.com/gotorrent/lib/logger"
 )
+
+var l_peerpool = logger.Named("peerpool")
 
 type PeerPool interface {
 	AddPeer(newPeers ...peer.Peer)
@@ -139,19 +142,19 @@ func (impl *peerPoolImpl) setupEventHandler(p peer.Peer) {
 		p.Interested()
 
 	})
-	p.OnChokedChanged(func(isChoked bool) {
-		if isChoked {
-			fmt.Printf("%s is choked\n", p.GetPeerID())
-		} else {
-			fmt.Printf("%s is unchoked\n", p.GetPeerID())
-		}
+	/*
+		p.OnChokedChanged(func(isChoked bool) {
+			if isChoked {
+				fmt.Printf("%s is choked\n", p.GetPeerID())
+			} else {
+				fmt.Printf("%s is unchoked\n", p.GetPeerID())
+			}
 
-	})
+		})
+	*/
 	go func() {
-		fmt.Println("waiting")
 		for req := range p.PieceRequests() {
-			fmt.Printf("got request #%d %d\n", req.PieceNo, req.Begin)
-			// Forwarding to request
+			l_peerpool.Sugar().Debugw("got request", "pieceno", req.PieceNo, "begin", req.Begin)
 			impl.pieceRequest <- req
 		}
 		panic("chan Closed")

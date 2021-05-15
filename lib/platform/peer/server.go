@@ -33,12 +33,14 @@ func (p PeerFactory) Serve(infoHash []byte) (newPeerChan chan peer.Peer, listenP
 func (p PeerFactory) acceptLoop(l net.Listener, infoHash []byte, newPeerChan chan peer.Peer) {
 	for {
 		conn, err := l.Accept()
-		fmt.Printf("Accept conn %s\n", conn.RemoteAddr().String())
+
+		l_peer.Sugar().Debugf("accept conn from %s", conn.RemoteAddr().String())
+		///fmt.Printf("Accept conn %s\n", conn.RemoteAddr().String())
 		if err != nil {
 			panic(err)
 		}
 		go func(conn net.Conn) {
-			ipStr, portStr, err := net.SplitHostPort(conn.LocalAddr().String())
+			ipStr, portStr, err := net.SplitHostPort(conn.RemoteAddr().String())
 			if err != nil {
 				panic(err)
 			}

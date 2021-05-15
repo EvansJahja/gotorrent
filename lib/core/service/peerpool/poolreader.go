@@ -2,13 +2,15 @@ package peerpool
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"math/rand"
 	"time"
 
 	"example.com/gotorrent/lib/core/adapter/peer"
+	"example.com/gotorrent/lib/logger"
 )
+
+var l_poolreader = logger.Named("poolreader")
 
 type poolReaderImpl struct {
 	impl          *peerPoolImpl
@@ -53,8 +55,7 @@ Retry:
 	n, err := r.Read(p)
 	//fmt.Println("Done reading")
 	if err != nil {
-		fmt.Printf("%s\n", err.Error())
-		fmt.Println("error")
+		// l_poolreader.Sugar().Errorw("error reading", "err", err.Error(), "peerid", targetPeer.GetPeerID())
 		return 0, err
 
 	}

@@ -1,10 +1,11 @@
+//go:generate stringer -type=MsgType
 package peer
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"net"
 	"strconv"
 	"sync"
@@ -12,9 +13,13 @@ import (
 
 	"example.com/gotorrent/lib/core/adapter/peer"
 	"example.com/gotorrent/lib/extensions"
+	"example.com/gotorrent/lib/logger"
+	"go.uber.org/zap"
 
 	"example.com/gotorrent/lib/core/domain"
 )
+
+var l_peer = logger.Named("peer")
 
 const (
 	protoBitTorrent = "BitTorrent protocol"
@@ -46,6 +51,8 @@ type peerImpl struct {
 	extHandler  extensions.ExtHandler
 	conn        net.Conn
 
+	ctx context.Context
+
 	weAreChocked      bool
 	theyAreChocked    bool
 	weAreInterested   bool
@@ -60,7 +67,6 @@ type peerImpl struct {
 
 	internalOnPieceArriveChans sync.Map
 	pieceRequestChan           chan peer.PieceRequest
-	//notificationMut    sync.RWMutex
 }
 
 var _ peer.Peer = &peerImpl{}
@@ -78,6 +84,7 @@ type PeerFactory struct {
 
 func (p PeerFactory) New(host domain.Host) peer.Peer {
 	newPeer := new(host, p.InfoHash).(*peerImpl)
+	newPeer.ctx = logger.NewContextid(context.Background())
 	newPeer.ourPiecesFn = p.OurPieceListFn
 	return newPeer
 }
@@ -121,9 +128,10 @@ func (impl *peerImpl) GetPeerID() []byte {
 
 func (impl *peerImpl) Connect() error {
 	hostname := net.JoinHostPort(impl.Host.IP.String(), strconv.Itoa(int(impl.Host.Port)))
+	logger.Ctx(l_peer, impl.ctx).Sugar().Debugf("connecting to %s", hostname)
 	conn, err := net.DialTimeout("tcp", hostname, 3*time.Second)
 	if err != nil {
-		//fmt.Printf("Fail connecting to %s, err: %s\n", hostname, err.Error())
+		logger.Ctx(l_peer, impl.ctx).Sugar().Warnw("fail connecting", "hostname", hostname, "err", err.Error())
 		return err
 	}
 	return impl.handleConnection(conn)
@@ -137,11 +145,11 @@ func (impl *peerImpl) handleConnection(conn net.Conn) error {
 	conn.SetDeadline(time.Now().Add(5 * time.Second))
 
 	if err := impl.doHandshake(); err != nil {
-		//fmt.Printf("Fail connecting to %s, err: %s\n", hostname, err.Error())
+		logger.Ctx(l_peer, impl.ctx).Sugar().Warnw("fail waiting for handshake", "hostname", hostname, "err", err.Error())
 		return err
 	}
 
-	fmt.Printf("Connected to %s\n", hostname)
+	logger.Ctx(l_peer, impl.ctx).Info("Connected", zap.String("hostname", hostname))
 	impl.connected = true
 
 	impl.conn.SetDeadline(time.Now().Add(5 * time.Minute))
@@ -201,7 +209,7 @@ func (impl *peerImpl) doHandshake() error {
 		peerID:       []byte("-GO0000-0257f4bc7fa1"),
 	}
 
-	fmt.Println("Send handshake")
+	logger.Ctx(l_peer, impl.ctx).Debug("send handshake", zap.String("hostname", impl.Hostname()))
 	impl.conn.Write(handshakeReq.getBytes())
 	handshakeRespBuff := make([]byte, 68)
 
@@ -274,6 +282,8 @@ func (impl *peerImpl) handleMessage(msg []byte) {
 	msgType := MsgType(msg[0])
 	msgVal := msg[1:]
 
+	logger.Ctx(l_peer, impl.ctx).Debug("receive message", zap.String("type", msgType.String()))
+
 	switch msgType {
 	case MsgChoke:
 		impl.handleWeAreChoked(true)
@@ -298,9 +308,9 @@ func (impl *peerImpl) handleMessage(msg []byte) {
 
 func (impl *peerImpl) handleWeAreChoked(weAreChoked bool) {
 	if weAreChoked {
-		fmt.Printf("%s choked\n", impl.Host.IP.String())
+		logger.Ctx(l_peer, impl.ctx).Debug("we are chocked", zap.String("host", impl.Host.IP.String()))
 	} else {
-		fmt.Printf("%s unchoked\n", impl.Host.IP.String())
+		logger.Ctx(l_peer, impl.ctx).Debug("we are unchocked", zap.String("host", impl.Host.IP.String()))
 	}
 	impl.weAreChocked = weAreChoked
 	var wg sync.WaitGroup
@@ -327,7 +337,7 @@ func (impl *peerImpl) handleRequest(msg []byte) {
 		return
 	}
 
-	fmt.Printf("req #%d %d %d\n", pieceId, begin, length)
+	logger.Ctx(l_peer, impl.ctx).Sugar().Debugw("handleRequest", "pieceId", pieceId, "begin", begin, "length", length)
 	respCh := make(chan []byte)
 	req := peer.PieceRequest{
 		PieceNo:  pieceId,
@@ -398,6 +408,8 @@ func (impl *peerImpl) handleExtendedMsg(msg []byte) {
 }
 
 func (impl *peerImpl) sendCmd(msg []byte, msgType MsgType) {
+
+	logger.Ctx(l_peer, impl.ctx).Debug("send message", zap.String("type", msgType.String()))
 	// Called for sending extended message
 	msgLen := len(msg)
 
@@ -459,7 +471,7 @@ func (impl *peerImpl) disconnected(reason error) {
 	if !impl.connected {
 		return
 	}
-	fmt.Printf("Dead: %s\n", impl.theirPeerID)
+	logger.Ctx(l_peer, impl.ctx).Sugar().Infof("Disconnected %s", impl.theirPeerID)
 	impl.connected = false
 	impl.conn.Close()
 }

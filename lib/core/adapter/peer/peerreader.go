@@ -5,7 +5,12 @@ import (
 	"fmt"
 	"io"
 	"time"
+
+	"example.com/gotorrent/lib/logger"
+	"go.uber.org/zap"
 )
+
+var l_peerreader = logger.Named("peerreader")
 
 type peerReader struct {
 	pieceNo  uint32
@@ -37,7 +42,7 @@ func (r *peerReader) Read(p []byte) (n int, err error) {
 		return 0, io.EOF
 	}
 
-	fmt.Printf("Request #%x %x\n", r.pieceNo, r.curPos)
+	l_peerreader.Debug("request", zap.Uint32("pieceNo", r.pieceNo), zap.Uint32("begin", r.curPos))
 	//r.peer.RequestPiece(r.pieceNo, r.curPos, requestedLength)
 	dataChan := r.peer.RequestPiece(r.pieceNo, r.curPos, requestedLength)
 	select {

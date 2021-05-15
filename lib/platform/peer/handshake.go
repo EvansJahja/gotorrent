@@ -42,6 +42,10 @@ func newHandshake(b []byte) handshake {
 	protoLen := b[0]
 	n := 1
 
+	if int(protoLen) != len(protoBitTorrent) {
+		return h
+	}
+
 	h.proto = string(b[n : n+int(protoLen)])
 	n += len(h.proto)
 	h.featureFlags = binary.BigEndian.Uint64(b[n:])
