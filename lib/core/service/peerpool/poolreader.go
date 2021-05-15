@@ -25,6 +25,7 @@ func (poolImpl *poolReaderImpl) Read(p []byte) (int, error) {
 Retry:
 	filteredPeers := FilterPool(poolImpl.impl.connectedPeers, FilterConnected, FilterNotChoking, FilterHasPiece(poolImpl.pieceNo))
 	if len(filteredPeers) == 0 {
+		l_poolreader.Warn("no peers match criteria")
 		time.Sleep(1 * time.Second)
 		goto Retry
 	}
@@ -32,6 +33,7 @@ Retry:
 	peerIdx := rand.Int() % len(filteredPeers)
 	targetPeer := filteredPeers[peerIdx]
 
+	l_poolreader.Sugar().Infof("Choose peer %s upload rate: %f kBps, download rate: %f kBps", targetPeer.GetPeerID(), targetPeer.GetUploadRate(), targetPeer.GetDownloadRate())
 	//fmt.Printf("Choosing %s out of %d peers\n", targetPeer.GetPeerID(), len(filteredPeers))
 
 	//fmt.Println("Creating peer reader")

@@ -32,6 +32,9 @@ type Peer interface {
 
 	GetState() State
 
+	GetDownloadRate() float32
+	GetUploadRate() float32
+
 	OnChokedChanged(func(isChoked bool))
 	OnPiecesUpdatedChanged(func())
 

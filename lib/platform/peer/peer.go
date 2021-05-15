@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"example.com/gotorrent/lib/core/adapter/peer"
@@ -67,6 +68,12 @@ type peerImpl struct {
 
 	internalOnPieceArriveChans sync.Map
 	pieceRequestChan           chan peer.PieceRequest
+
+	downloaded uint32 // We donwloaded this much from the peer
+	uploaded   uint32 // we uploaded this much to this peer
+
+	downloadPer5Secs []uint32
+	uploadedPer5Secs []uint32
 }
 
 var _ peer.Peer = &peerImpl{}
@@ -154,6 +161,8 @@ func (impl *peerImpl) handleConnection(conn net.Conn) error {
 
 	impl.conn.SetDeadline(time.Now().Add(5 * time.Minute))
 	go impl.handleConn()
+
+	go impl.updateStats()
 
 	return nil
 
@@ -353,6 +362,7 @@ func (impl *peerImpl) handleRequest(msg []byte) {
 
 }
 func (impl *peerImpl) handlePiece(msg []byte) {
+
 	var index uint32
 	var begin uint32
 	var piece []byte
@@ -360,6 +370,8 @@ func (impl *peerImpl) handlePiece(msg []byte) {
 	index = binary.BigEndian.Uint32(msg[0:4])
 	begin = binary.BigEndian.Uint32(msg[4:8])
 	piece = msg[8:]
+
+	atomic.AddUint32(&impl.downloaded, uint32(len(piece)))
 
 	key := keyType{
 		pieceId: index,
@@ -433,7 +445,9 @@ func (impl *peerImpl) sendBitfields() {
 }
 
 func (impl *peerImpl) sendPiece(pieceNo uint32, begin uint32, piece []byte) {
+	atomic.AddUint32(&impl.uploaded, uint32(len(piece)))
 	buf := make([]byte, len(piece)+4+4)
+
 	binary.BigEndian.PutUint32(buf[0:], pieceNo)
 	binary.BigEndian.PutUint32(buf[4:], begin)
 	copy(buf[8:], piece)
@@ -496,4 +510,57 @@ func (impl *peerImpl) write(b []byte) (int, error) {
 
 	}
 	return n, err
+}
+
+func (impl *peerImpl) updateStats() {
+	for {
+		d1 := atomic.LoadUint32(&impl.downloaded)
+		u1 := atomic.LoadUint32(&impl.uploaded)
+	Next:
+		time.Sleep(5 * time.Second)
+		d2 := atomic.LoadUint32(&impl.downloaded)
+		u2 := atomic.LoadUint32(&impl.uploaded)
+		downloadDiff := d2 - d1
+		uploadDiff := u2 - u1
+		d1 = d2
+		u1 = u2
+
+		if len(impl.downloadPer5Secs) == 2 {
+			impl.downloadPer5Secs = impl.downloadPer5Secs[1:]
+		}
+		if len(impl.downloadPer5Secs) > 2 {
+			panic("should be unreachable")
+		}
+		if len(impl.uploadedPer5Secs) == 2 {
+			impl.uploadedPer5Secs = impl.uploadedPer5Secs[1:]
+		}
+		if len(impl.uploadedPer5Secs) > 2 {
+			panic("should be unreachable")
+		}
+		impl.downloadPer5Secs = append(impl.downloadPer5Secs, downloadDiff)
+		impl.uploadedPer5Secs = append(impl.uploadedPer5Secs, uploadDiff)
+
+		goto Next
+	}
+
+}
+
+func (impl *peerImpl) GetDownloadRate() float32 {
+	var downloadsPer10secs uint32
+	for _, d := range impl.downloadPer5Secs {
+		downloadsPer10secs += d
+	}
+	downloadRatePer10S := float32(downloadsPer10secs) / 1000 / 10 // kBps
+
+	return downloadRatePer10S
+}
+
+func (impl *peerImpl) GetUploadRate() float32 {
+	var uploadsPer10secs uint32
+	for _, d := range impl.uploadedPer5Secs {
+		uploadsPer10secs += d
+	}
+	uploadRatePer10S := float32(uploadsPer10secs) / 1000 / 10 // kBps
+
+	return uploadRatePer10S
 }
