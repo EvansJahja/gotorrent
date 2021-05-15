@@ -300,8 +300,9 @@ func (impl *peerImpl) handleMessage(msg []byte) {
 		impl.handleWeAreChoked(false)
 	case MsgInterested:
 		impl.handleTheyAreInterested(true)
+	case MsgHave:
+		impl.handleHave(msgVal)
 	case MsgBitfield:
-		print("Bitfield")
 		impl.handleBitField(msgVal)
 	case MsgRequest:
 		impl.handleRequest(msgVal)
@@ -384,6 +385,10 @@ func (impl *peerImpl) handlePiece(msg []byte) {
 	} else {
 		panic("no handler")
 	}
+}
+func (impl *peerImpl) handleHave(msg []byte) {
+	pieceNo := binary.BigEndian.Uint32(msg)
+	impl.theirPieces.SetPiece(pieceNo)
 }
 
 func (impl *peerImpl) handleBitField(msg []byte) {
