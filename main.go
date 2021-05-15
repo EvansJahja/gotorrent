@@ -156,6 +156,16 @@ func main() {
 
 	l.Info("Start asking for pieces")
 
+	go func() {
+		for {
+			l := logger.Named("stats")
+			downloadRate, uploadRate, downloadBytes, uploadBytes := peerPool.GetNetworkStats()
+			l.Sugar().Infof("\nDown\t%f\nUp\t%f\nDownTot\t%f\nUpTot\t%f\n", downloadRate, uploadRate, float64(downloadBytes)/1e6, float64(uploadBytes)/1e6)
+
+			time.Sleep(5 * time.Second)
+		}
+	}()
+
 	for {
 		pieceNo, err := peerPool.FindNextPiece(ourPieces, f.Torrent.PiecesCount())
 		if err != nil {
@@ -190,7 +200,10 @@ func main() {
 			goto RetryPiece
 
 		}
+
 		ourPieces.SetPiece(pieceNo)
+		peerPool.TellPieceCompleted(pieceNo)
+
 		if err := skvStore.Put("pieces", ourPieces); err != nil {
 			l.Error("error store piece", zap.Error(err))
 		}
@@ -198,8 +211,20 @@ func main() {
 		l.Sugar().Infof("Done download and verify piece %d", pieceNo)
 
 		// TODO
-		// 1. Update our bitfields
-		// 2. Send "Have" to peers
+		// 1. Update our bitfields -> ourPiecesFn
+		// 2. Send "Have" to peers -> peerPool.OnPieceCompleted
+		// 3. Tell trackers
+
+		// tell trackers
+		_, _, downloadBytes, uploadBytes := peerPool.GetNetworkStats()
+
+		trackerInfo := udptracker.TrackerInfo{
+			Uploaded:   int(uploadBytes),
+			Downloaded: int(downloadBytes),
+			Left:       0,
+			Port:       portExposer.Port(),
+		}
+		udpPeerList.SetInfo(trackerInfo)
 
 	}
 

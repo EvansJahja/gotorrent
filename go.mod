@@ -10,6 +10,7 @@ require (
 	github.com/huin/goupnp v1.0.0
 	github.com/jackpal/bencode-go v1.0.0
 	github.com/rapidloop/skv v0.0.0-20180909015525-9def2caac4cc
+	github.com/stretchr/objx v0.3.0 // indirect
 	github.com/stretchr/testify v1.7.0
 	go.uber.org/multierr v1.7.0 // indirect
 	go.uber.org/zap v1.16.0

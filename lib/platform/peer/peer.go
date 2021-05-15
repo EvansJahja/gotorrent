@@ -440,6 +440,13 @@ func (impl *peerImpl) sendCmd(msg []byte, msgType MsgType) {
 	//h.c.Write(writeBuf)
 }
 
+func (impl *peerImpl) sendHave(pieceNo uint32) {
+
+	msg := make([]byte, 4)
+	binary.BigEndian.PutUint32(msg, pieceNo)
+	impl.sendCmd(msg, MsgHave)
+
+}
 func (impl *peerImpl) sendBitfields() {
 	impl.sendCmd([]byte(impl.ourPiecesFn()), MsgBitfield)
 }
@@ -563,4 +570,22 @@ func (impl *peerImpl) GetUploadRate() float32 {
 	uploadRatePer10S := float32(uploadsPer10secs) / 1000 / 10 // kBps
 
 	return uploadRatePer10S
+}
+
+func (impl *peerImpl) GetDownloadBytes() uint32 {
+	return atomic.LoadUint32(&impl.downloaded)
+
+}
+func (impl *peerImpl) GetUploadBytes() uint32 {
+	return atomic.LoadUint32(&impl.uploaded)
+}
+
+func (impl *peerImpl) TellPieceCompleted(pieceNo uint32) {
+	// tell "Have" for newly completed piece.
+	// It's not necessary to worry about bitfields since caller should
+	// have update such as `ourPiecesFn func() domain.PieceList` takes into account
+	// the newly completed piece
+
+	impl.sendHave(pieceNo)
+
 }

@@ -2,7 +2,6 @@ package peer
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"time"
 
@@ -47,11 +46,11 @@ func (r *peerReader) Read(p []byte) (n int, err error) {
 	dataChan := r.peer.RequestPiece(r.pieceNo, r.curPos, requestedLength)
 	select {
 	case <-time.After(1 * time.Second):
-		fmt.Printf("Timeout <%s> #%x %x\n", r.peer.Hostname(), r.pieceNo, r.curPos)
+		l_peerreader.Sugar().Debugf("Timeout <%s> #%x %x\n", r.peer.Hostname(), r.pieceNo, r.curPos)
 		return 0, errors.New("timeout waiting for piece")
 	case recvData := <-dataChan:
 		n = copy(p, recvData[:])
-		fmt.Printf("Recv #%x %x\n", r.pieceNo, r.curPos)
+		l_peerreader.Sugar().Debugf("Recv #%x %x\n", r.pieceNo, r.curPos)
 		r.curPos += uint32(n)
 		return
 	}

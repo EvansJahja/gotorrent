@@ -11,7 +11,7 @@ import (
 )
 
 //const rule = "*:*,-udptracker* warn+:udptracker*"
-const rule = "debug+:*"
+const rule = "*:*"
 
 var Log *zap.Logger
 

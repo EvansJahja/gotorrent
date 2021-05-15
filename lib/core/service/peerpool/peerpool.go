@@ -24,6 +24,11 @@ type PeerPool interface {
 
 	FindNextPiece(have domain.PieceList, pieceCount int) (uint32, error)
 	PieceRequests() <-chan peer.PieceRequest
+
+	// Call this when piece is done, to send Have to peers
+	TellPieceCompleted(pieceNo uint32)
+
+	GetNetworkStats() (downloadRate, uploadRate float32, downloadBytes, uploadBytes uint64)
 }
 type Factory struct {
 	PeerFactory interface {
@@ -193,16 +198,20 @@ Retry:
 	minV := 0
 	pieceCounts := make(map[uint32]int)
 	for _, p := range impl.connectedPeers {
+		theirPiece := p.TheirPieces()
 		for _, i := range wantPieces {
-			if p.TheirPieces().ContainPiece(i) {
+			if theirPiece.ContainPiece(i) {
 				pieceCounts[i] += 1
-				if maxV < pieceCounts[i] {
-					maxV = pieceCounts[i]
-				}
-				if minV > pieceCounts[i] || minV == 0 {
-					minV = pieceCounts[i]
-				}
 			}
+		}
+	}
+
+	for _, v := range pieceCounts {
+		if maxV < v {
+			maxV = v
+		}
+		if minV > v || minV == 0 {
+			minV = v
 		}
 	}
 	if len(pieceCounts) == 0 {
@@ -211,7 +220,15 @@ Retry:
 		goto Retry
 
 	}
+
 	// minV should NEVER be 0, so this is a precaution
+	if minV == 0 {
+		panic("minV should not be 0")
+	}
+
+	if len(pieceCounts) == 0 {
+		panic("should be unreachable ")
+	}
 
 	peerHasPieces := make([]uint32, 0, pieceCount)
 	rarePieces := make([]uint32, 0, pieceCount)
@@ -221,6 +238,9 @@ Retry:
 		}
 		peerHasPieces = append(peerHasPieces, k)
 	}
+	if len(pieceCounts) == 0 {
+		panic("should be unreachable ")
+	}
 
 	if maxV == 1 || minV == 0 {
 		pieceIdx := peerHasPieces[rand.Int()%len(peerHasPieces)]
@@ -228,8 +248,31 @@ Retry:
 		return pieceIdx, nil
 	}
 
+	if len(pieceCounts) == 0 {
+		panic("should be unreachable ")
+	}
+
 	pieceIdx := rarePieces[rand.Int()%len(rarePieces)]
 	l_peerpool.Debug("choosing next piece with rare pieces", zap.Uint32("pieceIdx", pieceIdx), zap.Uint32s("rare pieces", rarePieces), zap.Int("minV", minV))
 	return pieceIdx, nil
+
+}
+
+func (impl *peerPoolImpl) TellPieceCompleted(pieceNo uint32) {
+	for _, p := range impl.connectedPeers {
+		p.TellPieceCompleted(pieceNo)
+	}
+
+}
+
+func (impl *peerPoolImpl) GetNetworkStats() (downloadRate, uploadRate float32, downloadBytes, uploadBytes uint64) {
+	for _, p := range impl.connectedPeers {
+		downloadRate += p.GetDownloadRate()
+		uploadRate += p.GetUploadRate()
+		downloadBytes += uint64(p.GetDownloadBytes())
+		uploadBytes += uint64(p.GetUploadBytes())
+	}
+
+	return
 
 }

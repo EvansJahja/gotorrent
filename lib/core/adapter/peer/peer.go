@@ -1,3 +1,5 @@
+//go:generate mockgen -destination ../../../mocks/peer/peer.go . Peer
+
 package peer
 
 import (
@@ -34,6 +36,9 @@ type Peer interface {
 
 	GetDownloadRate() float32
 	GetUploadRate() float32
+	GetDownloadBytes() uint32
+	GetUploadBytes() uint32
+	TellPieceCompleted(pieceNo uint32)
 
 	OnChokedChanged(func(isChoked bool))
 	OnPiecesUpdatedChanged(func())

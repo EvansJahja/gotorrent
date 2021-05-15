@@ -230,7 +230,7 @@ func (f Files) VerifyLocalPiece(pieceNo uint32) bool {
 func (f Files) CheckPieces(ourPieces domain.PieceList) (okPieces domain.PieceList, hasChanges bool) {
 	okPieces = ourPieces
 
-	for pieceNo := uint32(0); pieceNo < 13; pieceNo++ {
+	for pieceNo := uint32(0); pieceNo < uint32(f.Torrent.PiecesCount()); pieceNo++ {
 		if ourPieces.ContainPiece(pieceNo) {
 			if ok := f.VerifyLocalPiece(pieceNo); !ok {
 				okPieces.ResetPiece(pieceNo)
