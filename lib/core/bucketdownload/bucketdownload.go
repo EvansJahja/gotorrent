@@ -5,6 +5,9 @@ import (
 	"io"
 	"math"
 	"sync"
+	"time"
+
+	"golang.org/x/net/context"
 )
 
 func New(src func() io.ReadSeekCloser, sink func() io.WriteSeeker, chunkSize int, totalSize int, concurrentWorker int) Bucket {
@@ -19,7 +22,7 @@ func New(src func() io.ReadSeekCloser, sink func() io.WriteSeeker, chunkSize int
 }
 
 type Bucket interface {
-	Start()
+	Start() error
 }
 
 type impl struct {
@@ -30,12 +33,16 @@ type impl struct {
 	concurrentWorker int
 }
 
-func (impl *impl) Start() {
+func (impl *impl) Start() error {
 
 	goroutinelim := make(chan struct{}, impl.concurrentWorker)
 	var wg sync.WaitGroup
+	ctx, _ := context.WithTimeout(context.Background(), 5*time.Minute)
 
 	for i := 0; i < impl.numOfChunks(); i++ {
+		if ctx.Err() != nil {
+			break
+		}
 		wg.Add(1)
 		go func(chunkNo int) {
 			goroutinelim <- struct{}{}
@@ -48,6 +55,11 @@ func (impl *impl) Start() {
 
 			limReader := io.LimitReader(reader, int64(size))
 		Retry:
+			if ctx.Err() != nil {
+				wg.Done()
+				<-goroutinelim
+				return
+			}
 			n, err := io.Copy(writer, limReader)
 			if err != nil {
 				if n != 0 {
@@ -66,6 +78,8 @@ func (impl *impl) Start() {
 		}(i)
 	}
 	wg.Wait()
+
+	return ctx.Err()
 
 }
 func (impl *impl) numOfChunks() int {

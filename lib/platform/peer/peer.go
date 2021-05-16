@@ -249,7 +249,14 @@ func (impl *peerImpl) doHandshake() error {
 
 }
 
+func (impl *peerImpl) loopKeepAlive() {
+	for {
+		time.Sleep(2 * time.Minute)
+		impl.sendKeepAlive()
+	}
+}
 func (impl *peerImpl) handleConn() {
+	go impl.loopKeepAlive()
 	sendCmdUntyped := extensions.SendMsgFn(func(msg []byte, msgType byte) {
 		impl.sendCmd(msg, MsgType(msgType))
 	})
@@ -339,6 +346,7 @@ func (impl *peerImpl) handleWeAreChoked(weAreChoked bool) {
 	wg.Wait()
 }
 func (impl *peerImpl) handleTheyAreInterested(interested bool) {
+	impl.theyAreInterested = interested
 	impl.Unchoke()
 
 }
@@ -398,17 +406,6 @@ func (impl *peerImpl) handleHave(msg []byte) {
 }
 
 func (impl *peerImpl) handleBitField(msg []byte) {
-	/*
-		for i, b := range msg {
-			for j := 0; j < 8; j++ {
-				key := i*8 + j
-				val := (b >> j & 1) == 1
-				if val {
-					impl.theirPieces[key] = struct{}{}
-				}
-			}
-		}
-	*/
 	impl.theirPieces = domain.PieceList(msg)
 
 	var wg sync.WaitGroup
@@ -430,6 +427,14 @@ func (impl *peerImpl) handleExtendedMsg(msg []byte) {
 	impl.extHandler.HandleCommand(extendedMsgId, msgVal)
 }
 
+func (impl *peerImpl) sendKeepAlive() {
+	writeBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(writeBuf, 0)
+	_, err := impl.write(writeBuf)
+	if err != nil {
+		impl.disconnected(err)
+	}
+}
 func (impl *peerImpl) sendCmd(msg []byte, msgType MsgType) {
 
 	logger.Ctx(l_peer, impl.ctx).Debug("send message", zap.String("type", msgType.String()))
@@ -487,15 +492,19 @@ func (impl *peerImpl) GetMetadata() (domain.Metadata, error) {
 }
 
 func (impl *peerImpl) Choke() {
+	impl.theyAreChocked = true
 	impl.sendCmd(nil, MsgChoke)
 }
 func (impl *peerImpl) Unchoke() {
+	impl.theyAreChocked = false
 	impl.sendCmd(nil, MsgUnchoke)
 }
 func (impl *peerImpl) Interested() {
+	impl.weAreInterested = true
 	impl.sendCmd(nil, MsgInterested)
 }
 func (impl *peerImpl) Uninterested() {
+	impl.weAreInterested = false
 	impl.sendCmd(nil, MsgNotInterested)
 }
 

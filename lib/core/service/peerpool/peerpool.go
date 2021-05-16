@@ -11,6 +11,7 @@ import (
 	"example.com/gotorrent/lib/core/adapter/peer"
 	"example.com/gotorrent/lib/core/domain"
 	"example.com/gotorrent/lib/logger"
+	"go.uber.org/ratelimit"
 	"go.uber.org/zap"
 )
 
@@ -26,6 +27,7 @@ type PeerPool interface {
 	PieceRequests() <-chan peer.PieceRequest
 	Peers(filters ...PeerFilter) []peer.Peer
 
+	SetInterestedIn(pieceNo uint32)
 	// Call this when piece is done, to send Have to peers
 	TellPieceCompleted(pieceNo uint32)
 
@@ -148,10 +150,12 @@ RetryConnect:
 
 func (impl *peerPoolImpl) setupEventHandler(p peer.Peer) {
 
-	p.OnPiecesUpdatedChanged(func() {
-		p.Interested()
+	/*
+		p.OnPiecesUpdatedChanged(func() {
+			p.Interested()
 
-	})
+		})
+	*/
 	/*
 		p.OnChokedChanged(func(isChoked bool) {
 			if isChoked {
@@ -163,7 +167,9 @@ func (impl *peerPoolImpl) setupEventHandler(p peer.Peer) {
 		})
 	*/
 	go func() {
+		rl := ratelimit.New(10)
 		for req := range p.PieceRequests() {
+			rl.Take()
 			l_peerpool.Sugar().Debugw("got request", "pieceno", req.PieceNo, "begin", req.Begin)
 			impl.pieceRequest <- req
 		}
@@ -279,4 +285,19 @@ func (impl *peerPoolImpl) GetNetworkStats() (downloadRate, uploadRate float32, d
 
 func (impl *peerPoolImpl) Peers(filters ...PeerFilter) []peer.Peer {
 	return FilterPool(impl.connectedPeers, filters...)
+}
+
+func (impl *peerPoolImpl) SetInterestedIn(pieceNo uint32) {
+	// 1. find all peers that "we are interested", but does not have pieceNo, tell not interested
+	// 2. find all peers that "we are not interested", but have piece no, tell interested
+	tellNotInterestedPeers := impl.Peers(FilterConnected, FilterWeAreInterested, FilterNotHavePiece(pieceNo))
+
+	for _, p := range tellNotInterestedPeers {
+		p.Uninterested()
+	}
+	tellInterestedPeers := impl.Peers(FilterConnected, FilterWeAreNotInterested, FilterHasPiece(pieceNo))
+	for _, p := range tellInterestedPeers {
+		p.Interested()
+	}
+
 }

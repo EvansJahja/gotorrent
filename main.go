@@ -17,6 +17,7 @@ import (
 	"example.com/gotorrent/lib/logger"
 	"example.com/gotorrent/lib/transport/echohttp"
 	"go.uber.org/zap"
+	"golang.org/x/net/context"
 
 	"example.com/gotorrent/lib/core/domain"
 	"example.com/gotorrent/lib/platform/gcache"
@@ -73,10 +74,13 @@ func main() {
 			ourPieces = domain.NewPieceList(torrentMeta.PiecesCount())
 			skvStore.Put("pieces", ourPieces)
 		}
-		if checkedPieces, hasChanges := f.CheckPieces(ourPieces); hasChanges {
-			fmt.Printf("has changes\n")
-			ourPieces = checkedPieces
-		}
+		// Don't check files
+		/*
+			if checkedPieces, hasChanges := f.CheckPieces(ourPieces); hasChanges {
+				fmt.Printf("has changes\n")
+				ourPieces = checkedPieces
+			}
+		*/
 	}
 
 	ourPiecesFn := func() domain.PieceList {
@@ -114,6 +118,7 @@ func main() {
 		PeerList:           udpPeerList,
 		Cache:              gcache.NewCache(),
 	}
+	_ = hostList
 
 	peerPool := peerpool.Factory{
 		PeerFactory: peer.PeerFactory{
@@ -128,15 +133,17 @@ func main() {
 		}
 	}()
 
-	hosts, err := hostList.GetHosts()
+	go func() {
+		hosts := udpPeerList.GetPeers()
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
+		l.Sugar().Debugw("host list", "hosts", hosts)
 
-	if err != nil {
-		fmt.Println(err.Error())
-		return
-	}
-	l.Sugar().Debugw("host list", "hosts", hosts)
-
-	peerPool.AddHosts(hosts...)
+		peerPool.AddHosts(hosts...)
+		time.Sleep(30 * time.Second)
+	}()
 
 	/*
 		local := domain.Host{
@@ -173,7 +180,9 @@ func main() {
 		}
 	}()
 
+	ctx, cancel := context.WithCancel(context.TODO())
 	for {
+	NextPiece:
 		pieceNo, err := peerPool.FindNextPiece(ourPieces, f.Torrent.PiecesCount())
 		if err != nil {
 			// No more piece
@@ -185,9 +194,21 @@ func main() {
 			continue
 		}
 		// TODO  tell interested and not interested based on our pieceNo
-	RetryPiece:
 
 		l.Sugar().Infof("Start downloading piece %d", pieceNo)
+
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					break
+				default:
+				}
+				// TODO: This seems a bit weird
+				peerPool.SetInterestedIn(pieceNo)
+				time.Sleep(10 * time.Second)
+			}
+		}()
 
 		fileWriteSeekerGen :=
 			func() io.WriteSeeker {
@@ -199,12 +220,15 @@ func main() {
 		}
 
 		bd := bucketdownload.New(poolReaderGen, fileWriteSeekerGen, 1<<14, f.Torrent.PieceLength, 5)
-		bd.Start()
+		err = bd.Start()
+		if err != nil {
+			l.Error("error downloading piece", zap.Error(err))
+			goto NextPiece
+		}
 
 		if ok := f.VerifyLocalPiece(pieceNo); !ok {
-			l.Sugar().Errorf("piece %d corrupt, retrying...", pieceNo)
-			time.Sleep(5 * time.Second)
-			goto RetryPiece
+			l.Sugar().Errorf("piece %d corrupt, skipping...", pieceNo)
+			goto NextPiece
 
 		}
 
@@ -234,6 +258,7 @@ func main() {
 		udpPeerList.SetInfo(trackerInfo)
 
 	}
+	cancel()
 
 	<-quit
 	return
