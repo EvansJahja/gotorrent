@@ -15,6 +15,7 @@ type ExtHandler interface {
 	Startup()
 	HandleCommand(msgId byte, msgVal []byte)
 	FetchMetadata() <-chan []byte
+	Extensions() map[string]interface{}
 }
 
 type extHandler struct {
@@ -67,6 +68,10 @@ func (h *extHandler) Init() {
 		},
 		"metadata_size": 0,
 	}
+}
+
+func (h *extHandler) Extensions() map[string]interface{} {
+	return h.peerExtendedInfo
 }
 
 func (h *extHandler) SetExtendedInfo(m map[string]interface{}) {

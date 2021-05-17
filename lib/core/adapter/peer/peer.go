@@ -4,6 +4,7 @@ package peer
 
 import (
 	"example.com/gotorrent/lib/core/domain"
+	"example.com/gotorrent/lib/extensions"
 )
 
 type State struct {
@@ -49,6 +50,7 @@ type Peer interface {
 	DisconnectOnPiecesUpdatedChanged(func())
 
 	PieceRequests() <-chan PieceRequest
+	ExtHandler() extensions.ExtHandler
 }
 
 type PieceRequest struct {

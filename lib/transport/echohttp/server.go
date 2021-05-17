@@ -27,6 +27,7 @@ type HTTPServe struct {
 var peerRoute *echo.Route
 var peersRoute *echo.Route
 var fileRoute *echo.Route
+var filesRoute *echo.Route
 
 func allows(s []string) func(c echo.Context) error {
 	return func(c echo.Context) error {
@@ -49,10 +50,10 @@ func (h *HTTPServe) Start() {
 		}))
 		e.Add("GET", "/health", h.health)
 		peersRoute = e.GET("/peers", h.peers)
-		peerRoute = e.GET("/peer/:hashID", h.peerID)
+		peerRoute = e.GET("/peer/:hashID", h.peer)
 		e.HEAD("/peer/:hashID", allows([]string{"get"}))
 		e.GET("/downloads", h.downloads)
-		e.GET("/files", h.files)
+		filesRoute = e.GET("/files", h.files)
 		fileRoute = e.GET("/file/:id", h.file)
 		//e.GET("/", h.root)
 
@@ -68,10 +69,20 @@ func (h *HTTPServe) files(c echo.Context) error {
 		return c.String(http.StatusServiceUnavailable, "our pieces not available")
 	}
 
-	r := struct {
-		CompletedFiles []string
-	}{}
+	type files struct {
+		OurHavePieces    []uint32
+		OurNotHavePieces []uint32
+	}
+	var r files
+	for pc := uint32(0); pc < uint32(h.Files.Torrent.PiecesCount()); pc++ {
+		if h.OurPieces.ContainPiece(pc) {
+			r.OurHavePieces = append(r.OurHavePieces, pc)
+		} else {
+			r.OurNotHavePieces = append(r.OurNotHavePieces, pc)
+		}
+	}
 	resp := hal.NewResource(r, c.Request().RequestURI)
+
 	type fileinfo struct {
 		Path             string
 		Pieces           []uint32
@@ -110,7 +121,51 @@ func (h *HTTPServe) files(c echo.Context) error {
 }
 
 func (h *HTTPServe) file(c echo.Context) error {
-	return nil
+	if h.Files == nil {
+		return c.String(http.StatusServiceUnavailable, "files not available")
+	}
+	if h.OurPieces == nil {
+		return c.String(http.StatusServiceUnavailable, "our pieces not available")
+	}
+	type fileinfo struct {
+		Path             string
+		Pieces           []uint32
+		OurHavePieces    []uint32
+		OurNotHavePieces []uint32
+	}
+	i, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return c.NoContent(http.StatusBadRequest)
+	}
+	if i < 0 || i >= len(h.Files.Torrent.Files) {
+		return c.NoContent(http.StatusNotFound)
+	}
+
+	fp := h.Files.Torrent.Files[i]
+	fPath := h.Files.GetRelativePath(fp.Path)
+	pieces := h.Files.GetPiecesFromFile(fPath)
+	ourHavePiece := make([]uint32, 0, len(pieces))
+	ourNotHavePiece := make([]uint32, 0, len(pieces))
+	for _, pc := range pieces {
+		if h.OurPieces.ContainPiece(pc) {
+			ourHavePiece = append(ourHavePiece, pc)
+		} else {
+			ourNotHavePiece = append(ourNotHavePiece, pc)
+		}
+	}
+
+	fileInfo := fileinfo{
+		Path:             fPath,
+		Pieces:           pieces,
+		OurHavePieces:    ourHavePiece,
+		OurNotHavePieces: ourNotHavePiece,
+	}
+
+	linkToFile := c.Echo().Reverse(fileRoute.Name, i)
+	resp := hal.NewResource(fileInfo, linkToFile)
+	resp.AddLink("up", hal.NewLink(filesRoute.Path, hal.LinkAttr{"title": "files"}))
+	respB, _ := resp.MarshalJSON()
+	return c.Blob(200, "application/hal+json", respB)
 }
 
 func (h *HTTPServe) downloads(c echo.Context) error {
@@ -208,7 +263,7 @@ func (h *HTTPServe) peers(c echo.Context) error {
 
 }
 
-func (h *HTTPServe) peerID(c echo.Context) error {
+func (h *HTTPServe) peer(c echo.Context) error {
 	if h.PeerPool == nil {
 		return c.String(http.StatusServiceUnavailable, "peerpool not available")
 	}
@@ -225,6 +280,7 @@ func (h *HTTPServe) peerID(c echo.Context) error {
 		TotalDownload string
 		TotalUpload   string
 		Pieces        []uint32
+		Extensions    map[string]interface{}
 	}
 	var pieces []uint32
 	theirPieces := p.TheirPieces()
@@ -235,8 +291,8 @@ func (h *HTTPServe) peerID(c echo.Context) error {
 	}
 
 	peerDetail := peerDetailStatType{
-		Hostname: p.Hostname(),
-
+		Hostname:      p.Hostname(),
+		Extensions:    p.ExtHandler().Extensions(),
 		DownloadRate:  fmt.Sprintf("%f kBps", p.GetDownloadRate()),
 		UploadRate:    fmt.Sprintf("%f kBps", p.GetUploadRate()),
 		TotalDownload: fmt.Sprintf("%f kB", float64(p.GetDownloadBytes())/1000),
@@ -246,7 +302,7 @@ func (h *HTTPServe) peerID(c echo.Context) error {
 	}
 
 	resp := hal.NewResource(peerDetail, c.Request().RequestURI)
-	resp.AddNewLink("back", peersRoute.Path)
+	resp.AddNewLink("up", peersRoute.Path)
 	respB, _ := resp.MarshalJSON()
 	return c.Blob(200, "application/hal+json", respB)
 

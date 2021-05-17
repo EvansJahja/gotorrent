@@ -609,3 +609,7 @@ func (impl *peerImpl) TellPieceCompleted(pieceNo uint32) {
 	impl.sendHave(pieceNo)
 
 }
+
+func (impl *peerImpl) ExtHandler() extensions.ExtHandler {
+	return impl.extHandler
+}
