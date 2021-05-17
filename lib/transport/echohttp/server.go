@@ -9,19 +9,24 @@ import (
 
 	"example.com/gotorrent/lib/core/adapter/peer"
 	"example.com/gotorrent/lib/core/bucketdownload"
+	"example.com/gotorrent/lib/core/domain"
 	"example.com/gotorrent/lib/core/service/peerpool"
+	"example.com/gotorrent/lib/files"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/nvellon/hal"
 )
 
 type HTTPServe struct {
-	PeerPool peerpool.PeerPool
-	Bucket   bucketdownload.Bucket
+	PeerPool  peerpool.PeerPool
+	Bucket    bucketdownload.Bucket
+	Files     *files.Files
+	OurPieces *domain.PieceList
 }
 
 var peerRoute *echo.Route
 var peersRoute *echo.Route
+var fileRoute *echo.Route
 
 func allows(s []string) func(c echo.Context) error {
 	return func(c echo.Context) error {
@@ -32,6 +37,7 @@ func allows(s []string) func(c echo.Context) error {
 
 	}
 }
+
 func (h *HTTPServe) Start() {
 	go func() {
 		e := echo.New()
@@ -46,11 +52,65 @@ func (h *HTTPServe) Start() {
 		peerRoute = e.GET("/peer/:hashID", h.peerID)
 		e.HEAD("/peer/:hashID", allows([]string{"get"}))
 		e.GET("/downloads", h.downloads)
-		e.GET("/", h.root)
+		e.GET("/files", h.files)
+		fileRoute = e.GET("/file/:id", h.file)
+		//e.GET("/", h.root)
 
 		e.Start(":8080")
 	}()
 
+}
+func (h *HTTPServe) files(c echo.Context) error {
+	if h.Files == nil {
+		return c.String(http.StatusServiceUnavailable, "files not available")
+	}
+	if h.OurPieces == nil {
+		return c.String(http.StatusServiceUnavailable, "our pieces not available")
+	}
+
+	r := struct {
+		CompletedFiles []string
+	}{}
+	resp := hal.NewResource(r, c.Request().RequestURI)
+	type fileinfo struct {
+		Path             string
+		Pieces           []uint32
+		OurHavePieces    []uint32
+		OurNotHavePieces []uint32
+	}
+
+	for i, fp := range h.Files.Torrent.Files {
+		fPath := h.Files.GetRelativePath(fp.Path)
+		pieces := h.Files.GetPiecesFromFile(fPath)
+		ourHavePiece := make([]uint32, 0, len(pieces))
+		ourNotHavePiece := make([]uint32, 0, len(pieces))
+		for _, pc := range pieces {
+			if h.OurPieces.ContainPiece(pc) {
+				ourHavePiece = append(ourHavePiece, pc)
+			} else {
+				ourNotHavePiece = append(ourNotHavePiece, pc)
+			}
+		}
+
+		fileInfo := fileinfo{
+			Path:             fPath,
+			Pieces:           pieces,
+			OurHavePieces:    ourHavePiece,
+			OurNotHavePieces: ourNotHavePiece,
+		}
+
+		linkToFile := c.Echo().Reverse(fileRoute.Name, i)
+		fileInfoResp := hal.NewResource(fileInfo, linkToFile)
+		resp.Embedded.Add("file", fileInfoResp)
+		resp.AddLink("file", hal.NewLink(linkToFile, hal.LinkAttr{"title": fPath}))
+	}
+
+	respB, _ := resp.MarshalJSON()
+	return c.Blob(200, "application/hal+json", respB)
+}
+
+func (h *HTTPServe) file(c echo.Context) error {
+	return nil
 }
 
 func (h *HTTPServe) downloads(c echo.Context) error {
@@ -64,71 +124,13 @@ func (h *HTTPServe) downloads(c echo.Context) error {
 	return c.Blob(200, "application/hal+json", respB)
 }
 
-func (h HTTPServe) peerStop(c echo.Context) error {
-	return nil
-}
-func (h HTTPServe) peer(c echo.Context) error {
-	peerId := c.Param("hashID")
-	type peerDetailStatType struct {
-		Hostname      string
-		DownloadRate  string
-		UploadRate    string
-		TotalDownload string
-		TotalUpload   string
-		Pieces        []uint32
-	}
-	peerDetail := peerDetailStatType{
-		Hostname: peerId,
-	}
-	self := c.Request().RequestURI
-	rsc := hal.NewResource(peerDetail, self)
-	rsc.AddNewLink("back", "..")
-	rsc.AddLink("start", hal.NewLink("start", hal.LinkAttr{"method": "POST"}))
-	return c.JSON(200, rsc)
-}
-
-func (h HTTPServe) root(c echo.Context) error {
-	return nil
-}
-func (h HTTPServe) peersBackup(c echo.Context) error {
-	type peerStatType struct {
-		Hostname      string
-		HashedPeerID  string
-		DownloadRate  string
-		UploadRate    string
-		TotalDownload string
-		TotalUpload   string
-	}
-	peers := []peerStatType{
-		{
-			Hostname:      "A",
-			TotalDownload: "0",
-		},
-		{
-			Hostname:      "B",
-			TotalDownload: "30",
-		},
-	}
-
-	type rootstat struct{}
-	r := rootstat{}
-	pools := hal.NewResource(r, c.Request().URL.String())
-
-	for i, p := range peers {
-		pr := hal.NewResource(p, fmt.Sprintf("peers/%d", i))
-		pools.AddLink("peer", hal.NewLink(c.Echo().Reverse(peerRoute.Name, i), hal.LinkAttr{"title": p.Hostname}))
-
-		pools.Embedded.Add("peer", pr)
-	}
-
-	return c.JSON(200, pools)
-
-}
-
-func (h HTTPServe) health(c echo.Context) error {
+func (h *HTTPServe) health(c echo.Context) error {
 	return c.JSON(200, "OK")
 }
-func (h HTTPServe) peers(c echo.Context) error {
+func (h *HTTPServe) peers(c echo.Context) error {
+	if h.PeerPool == nil {
+		return c.String(http.StatusServiceUnavailable, "peerpool not available")
+	}
 
 	var filterList []peerpool.PeerFilter
 	v := c.QueryParams()
@@ -204,12 +206,12 @@ func (h HTTPServe) peers(c echo.Context) error {
 	respB, _ := resp.MarshalJSON()
 	return c.Blob(200, "application/hal+json", respB)
 
-	//return c.JSON(200, resp)
-
 }
 
-func (h HTTPServe) peerID(c echo.Context) error {
-	// find peer
+func (h *HTTPServe) peerID(c echo.Context) error {
+	if h.PeerPool == nil {
+		return c.String(http.StatusServiceUnavailable, "peerpool not available")
+	}
 	hashID := c.Param("hashID")
 	p, err := h.findPeerByHash(hashID)
 	if err != nil {
@@ -250,7 +252,7 @@ func (h HTTPServe) peerID(c echo.Context) error {
 
 }
 
-func (h HTTPServe) findPeerByHash(hashID string) (peer.Peer, error) {
+func (h *HTTPServe) findPeerByHash(hashID string) (peer.Peer, error) {
 
 	peers := h.PeerPool.Peers(peerpool.FilterConnected)
 	for _, peerObj := range peers {

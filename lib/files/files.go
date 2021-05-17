@@ -86,41 +86,6 @@ func (f Files) GetLocalPiece(pieceNo uint32) []byte {
 
 }
 
-func (f Files) WriteSeeker(pieceNo int) io.WriteSeeker {
-	return &writeSeekImpl{
-		f:       f,
-		pieceNo: pieceNo,
-	}
-}
-
-type writeSeekImpl struct {
-	pieceNo int
-	f       Files
-	cursor  int64
-}
-
-func (impl *writeSeekImpl) Write(p []byte) (n int, err error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-	reader := bytes.NewReader(p)
-	n, err = impl.f.WritePieceToLocal(impl.pieceNo, reader, impl.cursor)
-	impl.cursor += int64(n)
-	return
-}
-
-func (impl *writeSeekImpl) Seek(offset int64, whence int) (int64, error) {
-	switch whence {
-	case io.SeekCurrent:
-		impl.cursor += offset
-	case io.SeekStart:
-		impl.cursor = offset
-	case io.SeekEnd:
-		impl.cursor = int64(impl.f.Torrent.PieceLength) + offset
-	}
-	return impl.cursor, nil
-}
-
 func (f Files) WritePieceToLocal(pieceNo int, pieceReader io.Reader, readOffset int64) (int, error) {
 
 	pieceLength := f.Torrent.PieceLength
@@ -180,7 +145,7 @@ func (f Files) GetPiecesFromFile(relPath string) []uint32 {
 		lastByte += uint32(fp.Length)
 	}
 	for i, fp := range f.Torrent.Files {
-		s := f.getRelativePath(fp.Path)
+		s := f.GetRelativePath(fp.Path)
 		if s != relPath {
 			continue
 		}
@@ -337,7 +302,7 @@ func (f Files) getAbsolutePath(p []string) string {
 	return pathToFile
 }
 
-func (f Files) getRelativePath(p []string) string {
+func (f Files) GetRelativePath(p []string) string {
 	return path.Join(p...)
 
 }

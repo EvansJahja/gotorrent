@@ -35,6 +35,9 @@ func main() {
 	l := logger.Named("main")
 	l.Info("Hi")
 
+	httpServer := echohttp.HTTPServe{}
+	httpServer.Start()
+
 	defer func() {
 		l.Info("Bye")
 	}()
@@ -68,6 +71,7 @@ func main() {
 	torrentMeta := metadata.MustParse()
 
 	f := files.Files{Torrent: torrentMeta, BasePath: location}
+	httpServer.Files = &f
 	//fPath := "***REMOVED***"
 	//pieces := f.GetPiecesFromFile(fPath)
 	//fmt.Println(pieces)
@@ -85,6 +89,8 @@ func main() {
 				ourPieces = checkedPieces
 			}
 		*/
+
+		httpServer.OurPieces = &ourPieces
 	}
 
 	/*
@@ -141,6 +147,7 @@ func main() {
 			OurPieceListFn: ourPiecesFn,
 		},
 	}.New()
+	httpServer.PeerPool = peerPool
 
 	go func() {
 		for newPeer := range newPeersChan {
@@ -177,12 +184,6 @@ func main() {
 			req.Response <- buf
 		}
 	}()
-
-	httpServe := echohttp.HTTPServe{
-		PeerPool: peerPool,
-		Bucket:   nil,
-	}
-	httpServe.Start()
 
 	// Download stuffs
 	go func() {
@@ -226,7 +227,7 @@ func main() {
 			}
 
 			bd := bucketdownload.New(poolReaderGen, fileWriteSeekerGen, 1<<14, f.Torrent.PieceLength, 5)
-			httpServe.Bucket = bd
+			httpServer.Bucket = bd
 			bd.Start()
 			bd.Wait()
 			err = bd.Error()
