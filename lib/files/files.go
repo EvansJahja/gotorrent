@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path"
 	"sync"
@@ -30,13 +29,11 @@ func (f Files) CreateFiles() {
 
 			pathToFile := f.getAbsolutePath(p.Path)
 
-			//buf := make([]byte, p.Length)
 			dir := path.Dir(pathToFile)
 			os.MkdirAll(dir, os.ModePerm)
 			f, _ := os.Create(pathToFile)
 			f.Truncate(int64(p.Length))
 			f.Close()
-			//os.WriteFile(pathToFile, buf, os.ModePerm&0666)
 			wg.Done()
 
 		}(p)
@@ -129,19 +126,9 @@ func (f Files) WritePieceToLocal(pieceNo int, pieceReader io.Reader, readOffset 
 	pieceLength := f.Torrent.PieceLength
 
 	skipBytes := pieceNo * pieceLength
-
-	// If pieceReader is a seeker, it may want to give data with further progress
-	/*
-		seeker, ok := pieceReader.(io.ReadSeeker)
-		if ok {
-	*/
-
 	skipBytesDueToReader := 0
 	skipBytesDueToReader += int(readOffset)
 	skipBytes += skipBytesDueToReader
-	/*
-		}
-	*/
 
 	numOfPieces := len(f.Torrent.Pieces) / 20
 	if pieceNo >= numOfPieces {
@@ -162,7 +149,6 @@ func (f Files) WritePieceToLocal(pieceNo int, pieceReader io.Reader, readOffset 
 		if err != nil {
 			panic(err)
 		}
-		// fmt.Printf("Write to %s [%x]\n", pathToFile, skipBytes)
 		fd.Truncate(int64(fp.Length))
 		fd.Seek(int64(skipBytes), 1) // Absolute
 		remainingToWrite := f.Torrent.Files[fileIdx].Length - skipBytes
@@ -186,24 +172,68 @@ func (f Files) WritePieceToLocal(pieceNo int, pieceReader io.Reader, readOffset 
 	return 0, nil
 }
 
-func (f Files) GetPiecesFromFile() []int {
-	var pieces []int
-	prevBytes := 0
-	for i, fp := range f.Torrent.Files {
-		if i == 22 {
-			fmt.Printf("%d: %s\n", i, f.getAbsolutePath(fp.Path))
-			fmt.Printf("Start: %d\n", prevBytes)
-			fmt.Printf("End: %d\n", prevBytes+fp.Length)
-			startPiece := int(math.Floor(float64(prevBytes) / float64(f.Torrent.PieceLength)))
-			endPiece := int(math.Floor(float64(prevBytes+fp.Length) / float64(f.Torrent.PieceLength)))
-			fmt.Printf("Start piece: %d\n", startPiece)
-			fmt.Printf("End piece: %d\n", endPiece)
-			break
-		}
-		prevBytes += fp.Length
+func (f Files) GetPiecesFromFile(relPath string) []uint32 {
+	var bytesOffset []uint32
+	lastByte := uint32(0)
+	for _, fp := range f.Torrent.Files {
+		bytesOffset = append(bytesOffset, lastByte)
+		lastByte += uint32(fp.Length)
 	}
-	//f.Torrent.PieceLength
+	for i, fp := range f.Torrent.Files {
+		s := f.getRelativePath(fp.Path)
+		if s != relPath {
+			continue
+		}
+		// this is the file
+		startByte := bytesOffset[i]
+		lastByte := startByte + uint32(fp.Length) - 1 // if we are at the end of file list
+
+		if i != len(f.Torrent.Files)-1 {
+			// this is NOT the last file
+			lastByte = bytesOffset[i+1]
+		}
+
+		return f.GetPiecesNoFromBytePos(startByte, lastByte)
+
+	}
+
+	return nil
+
+}
+
+func min(a uint32, b uint32) uint32 {
+	if a < b {
+		return a
+	}
+	return b
+}
+func max(a uint32, b uint32) uint32 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// Check whether test is inside [a,b]
+func onSegment(a uint32, b uint32, test1 uint32, test2 uint32) bool {
+	X := test1 <= max(a, b) && test2 >= min(a, b)
+	Y := test2 <= max(a, b) && test2 >= min(a, b)
+	return X || Y
+
+}
+
+func (f Files) GetPiecesNoFromBytePos(startPos uint32, endPos uint32) []uint32 {
+	var pieces []uint32
+	for i := 0; i < f.Torrent.PiecesCount(); i++ {
+		startOfPiece := uint32(i * f.Torrent.PieceLength)
+		endOfPiece := startOfPiece + uint32(f.Torrent.PieceLength) - 1
+
+		if onSegment(startOfPiece, endOfPiece, startPos, endPos) {
+			pieces = append(pieces, uint32(i))
+		}
+	}
 	return pieces
+
 }
 
 func (f Files) VerifyLocalPiece(pieceNo uint32) bool {
@@ -305,4 +335,9 @@ func (f Files) getAbsolutePath(p []string) string {
 
 	pathToFile := path.Join(pathFragments...)
 	return pathToFile
+}
+
+func (f Files) getRelativePath(p []string) string {
+	return path.Join(p...)
+
 }

@@ -136,16 +136,21 @@ func (impl *peerPoolImpl) runPeer(p peer.Peer) {
 		return
 
 	}
-RetryConnect:
-	err := p.Connect()
+	//Retry connecting loop
+	for i := 0; i < 5; i++ {
 
-	if err == nil {
-		impl.connectedPeers = append(impl.connectedPeers, p)
-	} else {
-		time.Sleep(5 * time.Second)
-		goto RetryConnect
+		err := p.Connect()
+
+		if err == nil {
+			impl.connectedPeers = append(impl.connectedPeers, p)
+			goto DoneConnecting
+		} else {
+			time.Sleep(5 * time.Second)
+		}
 	}
-
+	// fail connecting
+	return
+DoneConnecting:
 }
 
 func (impl *peerPoolImpl) setupEventHandler(p peer.Peer) {
@@ -167,7 +172,7 @@ func (impl *peerPoolImpl) setupEventHandler(p peer.Peer) {
 		})
 	*/
 	go func() {
-		rl := ratelimit.New(10)
+		rl := ratelimit.New(6) // limit to 100 kbps, does not work...
 		for req := range p.PieceRequests() {
 			rl.Take()
 			l_peerpool.Sugar().Debugw("got request", "pieceno", req.PieceNo, "begin", req.Begin)
@@ -178,6 +183,25 @@ func (impl *peerPoolImpl) setupEventHandler(p peer.Peer) {
 	}()
 }
 func (impl *peerPoolImpl) FindNextPiece(havePiece domain.PieceList, pieceCount int) (uint32, error) {
+
+	duplicatePieces := func(src []uint32) []uint32 {
+		duplicateCount := 30
+		targetDup := []uint32{19, 22, 23}
+		result := src[:]
+		for _, x := range src {
+			for _, td := range targetDup {
+				if x == td {
+					for l := 0; l < duplicateCount; l++ {
+						result = append(result, x)
+					}
+				}
+			}
+		}
+		rand.Shuffle(len(result), func(i, j int) {
+			result[i], result[j] = result[j], result[i]
+		})
+		return result
+	}
 
 	wantPieces := make([]uint32, 0, pieceCount)
 
@@ -248,7 +272,10 @@ Retry:
 		panic("should be unreachable ")
 	}
 
-	if maxV == 1 || minV == 0 {
+	duplicatedRes := duplicatePieces(peerHasPieces)
+
+	if maxV == 1 || minV == 0 || len(duplicatedRes) != len(peerHasPieces) {
+		peerHasPieces = duplicatePieces(peerHasPieces)
 		pieceIdx := peerHasPieces[rand.Int()%len(peerHasPieces)]
 		l_peerpool.Debug("choosing next piece randomly", zap.Uint32("pieceIdx", pieceIdx))
 		return pieceIdx, nil

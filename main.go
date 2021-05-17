@@ -68,6 +68,10 @@ func main() {
 	torrentMeta := metadata.MustParse()
 
 	f := files.Files{Torrent: torrentMeta, BasePath: location}
+	//fPath := "***REMOVED***"
+	//pieces := f.GetPiecesFromFile(fPath)
+	//fmt.Println(pieces)
+	//return
 	var ourPieces domain.PieceList
 	{
 		if err := skvStore.Get("pieces", &ourPieces); err != nil {
@@ -82,6 +86,17 @@ func main() {
 			}
 		*/
 	}
+
+	/*
+		for i := uint32(13); i <= 23; i++ {
+			if !ourPieces.ContainPiece(i) {
+				fmt.Printf("Need to download %d\n", i)
+
+			}
+
+		}
+		return
+	*/
 
 	ourPiecesFn := func() domain.PieceList {
 		return ourPieces
@@ -165,100 +180,95 @@ func main() {
 
 	httpServe := echohttp.HTTPServe{
 		PeerPool: peerPool,
+		Bucket:   nil,
 	}
 	httpServe.Start()
 
-	l.Info("Start asking for pieces")
-
+	// Download stuffs
 	go func() {
+		ctx, cancel := context.WithCancel(context.TODO())
 		for {
-			l := logger.Named("stats")
-			downloadRate, uploadRate, downloadBytes, uploadBytes := peerPool.GetNetworkStats()
-			l.Sugar().Infof("\nDown\t%f\nUp\t%f\nDownTot\t%f\nUpTot\t%f\n", downloadRate, uploadRate, float64(downloadBytes)/1e6, float64(uploadBytes)/1e6)
+		NextPiece:
+			pieceNo, err := peerPool.FindNextPiece(ourPieces, f.Torrent.PiecesCount())
+			if err != nil {
+				// No more piece
+				// Todo: check error
+				break
+			}
+			if ourPieces.ContainPiece(pieceNo) {
+				panic("should not happen")
+				continue
+			}
+			// TODO  tell interested and not interested based on our pieceNo
 
-			time.Sleep(5 * time.Second)
-		}
-	}()
+			l.Sugar().Infof("Start downloading piece %d", pieceNo)
 
-	ctx, cancel := context.WithCancel(context.TODO())
-	for {
-	NextPiece:
-		pieceNo, err := peerPool.FindNextPiece(ourPieces, f.Torrent.PiecesCount())
-		if err != nil {
-			// No more piece
-			// Todo: check error
-			break
-		}
-		if ourPieces.ContainPiece(pieceNo) {
-			panic("should not happen")
-			continue
-		}
-		// TODO  tell interested and not interested based on our pieceNo
-
-		l.Sugar().Infof("Start downloading piece %d", pieceNo)
-
-		go func() {
-			for {
-				select {
-				case <-ctx.Done():
-					break
-				default:
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						break
+					default:
+					}
+					// TODO: This seems a bit weird
+					peerPool.SetInterestedIn(pieceNo)
+					time.Sleep(10 * time.Second)
 				}
-				// TODO: This seems a bit weird
-				peerPool.SetInterestedIn(pieceNo)
-				time.Sleep(10 * time.Second)
+			}()
+
+			fileWriteSeekerGen :=
+				func() io.WriteSeeker {
+					return f.WriteSeeker(int(pieceNo))
+				}
+
+			poolReaderGen := func() io.ReadSeekCloser {
+				return peerPool.NewPeerPoolReader(pieceNo, f.Torrent.PieceLength, f.Torrent.PiecesCount(), f.Torrent.TorrentLength())
 			}
-		}()
 
-		fileWriteSeekerGen :=
-			func() io.WriteSeeker {
-				return f.WriteSeeker(int(pieceNo))
+			bd := bucketdownload.New(poolReaderGen, fileWriteSeekerGen, 1<<14, f.Torrent.PieceLength, 5)
+			httpServe.Bucket = bd
+			bd.Start()
+			bd.Wait()
+			err = bd.Error()
+			if err != nil {
+				l.Error("error downloading piece", zap.Error(err))
+				goto NextPiece
 			}
 
-		poolReaderGen := func() io.ReadSeekCloser {
-			return peerPool.NewPeerPoolReader(pieceNo, f.Torrent.PieceLength, f.Torrent.PiecesCount(), f.Torrent.TorrentLength())
+			if ok := f.VerifyLocalPiece(pieceNo); !ok {
+				l.Sugar().Errorf("piece %d corrupt, skipping...", pieceNo)
+				goto NextPiece
+
+			}
+
+			ourPieces.SetPiece(pieceNo)
+			peerPool.TellPieceCompleted(pieceNo)
+
+			if err := skvStore.Put("pieces", ourPieces); err != nil {
+				l.Error("error store piece", zap.Error(err))
+			}
+
+			l.Sugar().Infof("Done download and verify piece %d", pieceNo)
+
+			// TODO
+			// 1. Update our bitfields -> ourPiecesFn
+			// 2. Send "Have" to peers -> peerPool.OnPieceCompleted
+			// 3. Tell trackers
+
+			// tell trackers
+			_, _, downloadBytes, uploadBytes := peerPool.GetNetworkStats()
+
+			trackerInfo := udptracker.TrackerInfo{
+				Uploaded:   int(uploadBytes),
+				Downloaded: int(downloadBytes),
+				Left:       0,
+				Port:       portExposer.Port(),
+			}
+			udpPeerList.SetInfo(trackerInfo)
+
 		}
-
-		bd := bucketdownload.New(poolReaderGen, fileWriteSeekerGen, 1<<14, f.Torrent.PieceLength, 5)
-		err = bd.Start()
-		if err != nil {
-			l.Error("error downloading piece", zap.Error(err))
-			goto NextPiece
-		}
-
-		if ok := f.VerifyLocalPiece(pieceNo); !ok {
-			l.Sugar().Errorf("piece %d corrupt, skipping...", pieceNo)
-			goto NextPiece
-
-		}
-
-		ourPieces.SetPiece(pieceNo)
-		peerPool.TellPieceCompleted(pieceNo)
-
-		if err := skvStore.Put("pieces", ourPieces); err != nil {
-			l.Error("error store piece", zap.Error(err))
-		}
-
-		l.Sugar().Infof("Done download and verify piece %d", pieceNo)
-
-		// TODO
-		// 1. Update our bitfields -> ourPiecesFn
-		// 2. Send "Have" to peers -> peerPool.OnPieceCompleted
-		// 3. Tell trackers
-
-		// tell trackers
-		_, _, downloadBytes, uploadBytes := peerPool.GetNetworkStats()
-
-		trackerInfo := udptracker.TrackerInfo{
-			Uploaded:   int(uploadBytes),
-			Downloaded: int(downloadBytes),
-			Left:       0,
-			Port:       portExposer.Port(),
-		}
-		udpPeerList.SetInfo(trackerInfo)
-
-	}
-	cancel()
+		cancel()
+	}()
 
 	<-quit
 	return

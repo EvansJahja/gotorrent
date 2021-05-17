@@ -10,6 +10,7 @@ require (
 	github.com/huin/goupnp v1.0.0
 	github.com/jackpal/bencode-go v1.0.0
 	github.com/labstack/echo/v4 v4.3.0
+	github.com/nvellon/hal v0.3.0 // indirect
 	github.com/rapidloop/skv v0.0.0-20180909015525-9def2caac4cc
 	github.com/stretchr/testify v1.7.0
 	go.uber.org/multierr v1.7.0 // indirect

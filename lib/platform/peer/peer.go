@@ -140,10 +140,10 @@ func (impl *peerImpl) GetID() string {
 
 func (impl *peerImpl) Connect() error {
 	hostname := net.JoinHostPort(impl.Host.IP.String(), strconv.Itoa(int(impl.Host.Port)))
-	logger.Ctx(l_peer, impl.ctx).Sugar().Debugf("connecting to %s", hostname)
+	logger.Ctx(l_peer, impl.ctx).Sugar().Debugf("connecting to %s %s", impl.GetID(), hostname)
 	conn, err := net.DialTimeout("tcp", hostname, 3*time.Second)
 	if err != nil {
-		logger.Ctx(l_peer, impl.ctx).Sugar().Warnw("fail connecting", "hostname", hostname, "err", err.Error())
+		logger.Ctx(l_peer, impl.ctx).Sugar().Warnw("fail connecting", "ID", impl.GetID(), "hostname", hostname, "err", err.Error())
 		return err
 	}
 	return impl.handleConnection(conn)
@@ -161,7 +161,7 @@ func (impl *peerImpl) handleConnection(conn net.Conn) error {
 		return err
 	}
 
-	logger.Ctx(l_peer, impl.ctx).Info("Connected", zap.String("hostname", hostname))
+	logger.Ctx(l_peer, impl.ctx).Info("Connected", zap.String("hostname", hostname), zap.String("ID", impl.GetID()))
 	impl.connected = true
 
 	impl.conn.SetDeadline(time.Now().Add(5 * time.Minute))
@@ -512,7 +512,7 @@ func (impl *peerImpl) disconnected(reason error) {
 	if !impl.connected {
 		return
 	}
-	logger.Ctx(l_peer, impl.ctx).Sugar().Infof("Disconnected %s", impl.theirPeerID)
+	logger.Ctx(l_peer, impl.ctx).Sugar().Infof("Disconnected %s", impl.GetID())
 	impl.connected = false
 	impl.conn.Close()
 }

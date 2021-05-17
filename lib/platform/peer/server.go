@@ -53,6 +53,7 @@ func (p PeerFactory) acceptLoop(l net.Listener, infoHash []byte, newPeerChan cha
 				Port: uint16(port),
 			}
 			impl := p.New(h).(*peerImpl)
+			l_peer.Sugar().Debugf("accept conn from %s %s", impl.GetID(), conn.RemoteAddr().String())
 			impl.conn = conn
 			impl.handleConnection(conn)
 			newPeerChan <- impl

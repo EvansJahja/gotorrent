@@ -5,6 +5,7 @@ import (
 	"io"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/net/context"
@@ -22,7 +23,21 @@ func New(src func() io.ReadSeekCloser, sink func() io.WriteSeeker, chunkSize int
 }
 
 type Bucket interface {
-	Start() error
+	Start()
+	Error() error
+	Wait()
+	Stats() Status
+}
+
+type Status struct {
+	PieceNo uint32
+
+	// Buckets
+	Waiting  int32
+	Starting int32
+	Finished int32
+
+	Progress float32
 }
 
 type impl struct {
@@ -31,21 +46,56 @@ type impl struct {
 	chunkSize        int
 	totalSize        int
 	concurrentWorker int
+	doneWg           sync.WaitGroup
+	doneErr          error
+
+	waiting     int32
+	starting    int32
+	finished    int32
+	bucketcount int32
 }
 
-func (impl *impl) Start() error {
+func (impl *impl) Stats() Status {
+	s := Status{
+		Waiting:  atomic.LoadInt32(&impl.waiting),
+		Starting: atomic.LoadInt32(&impl.starting),
+		Finished: atomic.LoadInt32(&impl.finished),
+	}
+
+	s.Progress = 100 * float32(s.Finished) / float32(impl.bucketcount)
+
+	return s
+
+}
+func (impl *impl) Wait() {
+	impl.doneWg.Wait()
+}
+
+func (impl *impl) Start() {
+	impl.doneWg.Add(1) // to track that we are starting
+	go impl.run()
+}
+func (impl *impl) Error() error {
+	return impl.doneErr
+}
+
+func (impl *impl) run() {
+	impl.doneErr = nil
 
 	goroutinelim := make(chan struct{}, impl.concurrentWorker)
-	var wg sync.WaitGroup
 	ctx, _ := context.WithTimeout(context.Background(), 5*time.Minute)
 
+	impl.bucketcount = int32(impl.numOfChunks())
 	for i := 0; i < impl.numOfChunks(); i++ {
 		if ctx.Err() != nil {
 			break
 		}
-		wg.Add(1)
+		atomic.AddInt32(&impl.waiting, 1)
+		impl.doneWg.Add(1)
 		go func(chunkNo int) {
 			goroutinelim <- struct{}{}
+			atomic.AddInt32(&impl.waiting, -1)
+			atomic.AddInt32(&impl.starting, 1)
 			start, size := impl.rangeFromChunkNo(chunkNo)
 			reader := impl.src()
 			writer := impl.sink()
@@ -56,7 +106,8 @@ func (impl *impl) Start() error {
 			limReader := io.LimitReader(reader, int64(size))
 		Retry:
 			if ctx.Err() != nil {
-				wg.Done()
+				impl.doneErr = ctx.Err()
+				impl.doneWg.Done()
 				<-goroutinelim
 				return
 			}
@@ -72,15 +123,17 @@ func (impl *impl) Start() error {
 			if n == 0 {
 				fmt.Println("n is 0")
 			}
+			atomic.AddInt32(&impl.starting, -1)
+			atomic.AddInt32(&impl.finished, 1)
 			reader.Close()
-			wg.Done()
+			impl.doneWg.Done()
 			<-goroutinelim
 		}(i)
 	}
-	wg.Wait()
+	impl.doneErr = ctx.Err()
 
-	return ctx.Err()
-
+	impl.doneWg.Done() // decrement the one from start
+	//return ctx.Err()
 }
 func (impl *impl) numOfChunks() int {
 	return int(math.Ceil(float64(impl.totalSize) / float64(impl.chunkSize)))
